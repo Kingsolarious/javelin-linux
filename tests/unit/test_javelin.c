@@ -11,6 +11,13 @@
 #include <string.h>
 #include <unistd.h>
 
+#define JV_ASSERT_OK(expr)                                                                         \
+    do {                                                                                           \
+        jv_result_t _rc = (expr);                                                                  \
+        assert(_rc == JV_OK);                                                                      \
+        (void)_rc;                                                                                 \
+    } while (0)
+
 static int test_system_info(void) {
     struct {
         uint32_t page_size;
@@ -22,8 +29,7 @@ static int test_system_info(void) {
     } info = {0};
     uint32_t retlen = 0;
 
-    jv_result_t rc = jv_query_system_info(JV_SYS_BASIC, &info, sizeof(info), &retlen);
-    assert(rc == JV_OK);
+    JV_ASSERT_OK(jv_query_system_info(JV_SYS_BASIC, &info, sizeof(info), &retlen));
     assert(retlen == sizeof(info));
     assert(info.page_size > 0);
     assert(info.cpus > 0);
@@ -36,8 +42,7 @@ static int test_stub_classes(void) {
     for (int cls = 1; cls <= 10; cls++) {
         memset(buf, 0xAA, sizeof(buf));
         uint32_t local_retlen = 0;
-        jv_result_t rc = jv_query_system_info(cls, buf, sizeof(buf), &local_retlen);
-        assert(rc == JV_OK);
+        JV_ASSERT_OK(jv_query_system_info(cls, buf, sizeof(buf), &local_retlen));
         for (size_t i = 0; i < local_retlen; i++)
             assert((unsigned char)buf[i] != 0xAA);
     }
@@ -71,8 +76,7 @@ static int test_protect_memory(void) {
     uint32_t len = (uint32_t)ps;
     uint32_t oldprot = 0;
 
-    jv_result_t rc = jv_protect_memory(NULL, &base, &len, JV_PROT_READ | JV_PROT_WRITE, &oldprot);
-    assert(rc == JV_OK);
+    JV_ASSERT_OK(jv_protect_memory(NULL, &base, &len, JV_PROT_READ | JV_PROT_WRITE, &oldprot));
     printf("  [PASS] jv_protect_memory (READ|WRITE)\n");
 
     free(mem);
@@ -80,8 +84,9 @@ static int test_protect_memory(void) {
 }
 
 static int test_close_handle(void) {
-    assert(jv_close_handle((void *)0x1234) == JV_OK);
-    printf("  [PASS] jv_close_handle\n");
+    /* invalid handle returns error */
+    assert(jv_close_handle((void *)0x1234) == JV_ERR_INVALID);
+    printf("  [PASS] jv_close_handle invalid handle\n");
     return 0;
 }
 
@@ -96,8 +101,7 @@ static int test_process_info(void) {
     } info = {0};
     uint32_t retlen = 0;
 
-    jv_result_t rc = jv_query_process_info(NULL, JV_PROC_BASIC, &info, sizeof(info), &retlen);
-    assert(rc == JV_OK);
+    JV_ASSERT_OK(jv_query_process_info(NULL, JV_PROC_BASIC, &info, sizeof(info), &retlen));
     assert(info.pid == (uint64_t)getpid());
     printf("  [PASS] jv_query_process_info(JV_PROC_BASIC)\n");
     return 0;
@@ -107,13 +111,11 @@ static int test_alloc_free(void) {
     void *addr = NULL;
     uint32_t len = 4096;
 
-    jv_result_t rc = jv_alloc_memory(NULL, &addr, &len, JV_MEM_RESERVE | JV_MEM_COMMIT,
-                                     JV_PROT_READ | JV_PROT_WRITE);
-    assert(rc == JV_OK);
+    JV_ASSERT_OK(jv_alloc_memory(NULL, &addr, &len, JV_MEM_RESERVE | JV_MEM_COMMIT,
+                                 JV_PROT_READ | JV_PROT_WRITE));
     assert(addr != NULL);
 
-    rc = jv_free_memory(NULL, &addr, &len, 0);
-    assert(rc == JV_OK);
+    JV_ASSERT_OK(jv_free_memory(NULL, &addr, &len, 0));
     assert(addr == NULL);
     printf("  [PASS] jv_alloc_memory / jv_free_memory\n");
     return 0;
@@ -121,16 +123,12 @@ static int test_alloc_free(void) {
 
 static int test_invalid_args(void) {
     /* NULL buf with nonzero len should fail */
-    jv_result_t rc = jv_query_system_info(JV_SYS_BASIC, NULL, 16, NULL);
-    assert(rc == JV_ERR_INVALID);
+    assert(jv_query_system_info(JV_SYS_BASIC, NULL, 16, NULL) == JV_ERR_INVALID);
 
     /* NULL out should fail */
-    jv_handle_t h;
-    rc = jv_open_process(NULL, 0, &h);
-    assert(rc == JV_ERR_INVALID);
+    assert(jv_open_process(NULL, 0, NULL) == JV_ERR_INVALID);
 
-    rc = jv_create_thread(NULL, (void *)1, NULL);
-    assert(rc == JV_ERR_INVALID);
+    assert(jv_create_thread(NULL, (void *)1, NULL) == JV_ERR_INVALID);
 
     printf("  [PASS] invalid argument handling\n");
     return 0;
@@ -178,8 +176,7 @@ static int test_flush_icache(void) {
     char *mem = aligned_alloc(ps, ps);
     assert(mem != NULL);
 
-    jv_result_t rc = jv_flush_icache(NULL, mem, (uint32_t)ps);
-    assert(rc == JV_OK);
+    JV_ASSERT_OK(jv_flush_icache(NULL, mem, (uint32_t)ps));
     printf("  [PASS] jv_flush_icache\n");
 
     free(mem);

@@ -41,6 +41,7 @@ struct jv_event {
 static int ebpf_fd = -1;
 static volatile bool running = false;
 static pthread_t report_thread;
+static bool thread_started = false;
 
 static int connect_ebpf(void) {
     int fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
@@ -219,12 +220,17 @@ void jv_attestation_start(void) {
     if (pthread_create(&report_thread, NULL, report_loop, NULL) != 0) {
         fprintf(stderr, "[javelin] failed to start attestation thread\n");
         running = false;
+        return;
     }
+    thread_started = true;
 }
 
 void jv_attestation_stop(void) {
     running = false;
-    pthread_join(report_thread, NULL);
+    if (thread_started) {
+        pthread_join(report_thread, NULL);
+        thread_started = false;
+    }
     if (ebpf_fd >= 0) {
         close(ebpf_fd);
         ebpf_fd = -1;

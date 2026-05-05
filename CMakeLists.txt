@@ -3,6 +3,14 @@ project(javelin-linux VERSION 0.1.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+    set(JVL_ARCH "x86_64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+    set(JVL_ARCH "aarch64")
+else()
+    set(JVL_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
 option(JVL_BUILD_TESTS "Build tests" ON)
 option(JVL_BUILD_EBPF  "Build eBPF programs" ON)
 option(JVL_ENABLE_ASAN "Enable AddressSanitizer" OFF)
@@ -86,6 +94,15 @@ if(JVL_BUILD_TESTS)
     )
     target_link_libraries(memscan_benchmark PRIVATE Threads::Threads)
     add_test(NAME memscan_benchmark COMMAND memscan_benchmark)
+
+    add_executable(test_cross_process
+        tests/integration/test_cross_process.c
+        src/javelin/javelin.c
+        src/platform/linux/attestation.c
+    )
+    target_link_libraries(test_cross_process PRIVATE Threads::Threads)
+    add_test(NAME cross_process COMMAND test_cross_process)
+    set_tests_properties(cross_process PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 # install
@@ -117,6 +134,7 @@ install(DIRECTORY docs/
 
 message(STATUS "")
 message(STATUS "javelin linux ${PROJECT_VERSION}")
+message(STATUS "arch: ${JVL_ARCH}")
 message(STATUS "build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "tests: ${JVL_BUILD_TESTS}")
 message(STATUS "ebpf: ${JVL_BUILD_EBPF}")

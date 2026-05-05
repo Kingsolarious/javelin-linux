@@ -18,7 +18,7 @@ jobs:
       - name: deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libbpf-dev ${{ matrix.compiler == 'clang' && 'clang' || '' }}
+          sudo apt-get install -y cmake ninja-build libbpf-dev linux-headers-generic linux-tools-common linux-tools-generic ${{ matrix.compiler == 'clang' && 'clang' || '' }}
       - name: configure
         run: |
           cmake -B build -G Ninja \
@@ -29,6 +29,16 @@ jobs:
         run: cmake --build build --parallel
       - name: test
         run: ctest --test-dir build --output-on-failure
+      - name: eBPF compile
+        continue-on-error: true
+        run: |
+          if command -v bpftool >/dev/null 2>&1 && [[ -f /sys/kernel/btf/vmlinux ]]; then
+            bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/ebpf/vmlinux.h
+            clang -target bpf -D__TARGET_ARCH_x86_64 -I/usr/include/x86_64-linux-gnu -I/usr/include/bpf -O2 -c src/ebpf/javelin_monitor.bpf.c -o javelin_monitor.bpf.o
+            echo "eBPF compiled successfully"
+          else
+            echo "eBPF compilation skipped (bpftool or BTF unavailable)"
+          fi
 
   lint:
     runs-on: ubuntu-latest
