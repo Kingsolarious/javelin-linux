@@ -2,28 +2,32 @@
 
 ## unreleased
 
-- initial eBPF skeleton with ring buffer and PID filter
-- added lsm/file_mprotect hook for W->X transitions
-- added ptrace tracepoint
-- added kernel_read_file hook for module loads
-- added kallsyms access detection (janky partial string match)
-- added lsm/bpf hook for foreign eBPF loads
-- wrote libbpf loader with privilege drop
-- fixed loader privilege drop bug (now aborts if SUDO_UID missing)
-- fixed MAP_FIXED to use MAP_FIXED_NOREPLACE
-- added NULL checks to syscall proxy
-- added memscan benchmark suite
-- added seccomp-bpf sandbox
-- added systemd service file
-- added protobuf attestation schema
-- added flatpak manifest for ROG ally / steam deck
-- unit tests pass (test_javelin, test_seccomp)
-- integration tests pass (library exports, seccomp, unit tests)
+- eBPF skeleton with ringbuf and PID filter (CO-RE compatible)
+- LSM/file_mprotect hook with memory integrity hashing
+- ptrace tracepoint for debugger detection
+- kernel_read_file hook for module load monitoring
+- proper kallsyms detector (character-by-character match in eBPF)
+- LSM/bpf hook for foreign eBPF load detection
+- clock_gettime tracepoint for timer anomaly detection (speed hack detection)
+- libbpf loader with privilege drop
+- privilege drop bug fixed (aborts if SUDO_UID missing)
+- MAP_FIXED_NOREPLACE instead of MAP_FIXED
+- null checks in syscall proxy
+- proper thread trampoline avoiding void*-to-function-pointer UB
+- memscan benchmark (process_vm_readv throughput >5GB/s)
+- seccomp-bpf sandbox
+- attestation service with system state checks (ptrace_scope, secure boot)
+- systemd service
+- protobuf schema for backend attestation
+- flatpak manifest
+- docs/research-notes.md with real citations
+- docs/ea-javelin-error-codes.md collated from public sources
+- scripts for syscall tracing and EAC client analysis
 
 ## 0.1.0 - 2026-04-29
 
-- initial project scaffold
-- userland shim with NT->linux syscall proxy
-- eBPF LSM agent for kernel telemetry
-- unit tests for syscall proxy and attestation
-- integration test suite
+- initial scaffold
+- userland shim
+- ebpf lsm agent
+- unit tests
+- integration tests

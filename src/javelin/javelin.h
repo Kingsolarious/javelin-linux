@@ -1,7 +1,10 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * javelin linux native interface
  * public API for libjavelin.so
- * standard C types only. no windows types.
+ *
+ * this header is the contract. dont change it without updating
+ * the windows side too.
  */
 
 #ifndef JAVELIN_H
@@ -21,6 +24,8 @@ typedef int32_t jv_result_t;
 typedef void *jv_handle_t;
 #define JV_INVALID_HANDLE ((void *)-1)
 
+/* these are windows NT info class values. dont renumber them
+ * or windows games will break. */
 enum jv_proc_info {
     JV_PROC_BASIC = 0,
     JV_PROC_DEBUG_PORT = 7,
@@ -34,6 +39,7 @@ enum jv_sys_info {
     JV_SYS_PROCESS = 5,
 };
 
+/* windows page protection flags. same values as winnt.h */
 enum jv_mem_prot {
     JV_PROT_NONE  = 0x01,
     JV_PROT_READ  = 0x02,
@@ -41,6 +47,7 @@ enum jv_mem_prot {
     JV_PROT_EXEC  = 0x10,
 };
 
+/* windows memory allocation flags. same values as winnt.h */
 enum jv_mem_flags {
     JV_MEM_COMMIT  = 0x00001000,
     JV_MEM_RESERVE = 0x00002000,

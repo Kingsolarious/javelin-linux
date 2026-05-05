@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Javelin Linux Compatibility — Integration Test Suite
-# Tests the full userland shim without requiring root or eBPF load.
+# integration tests
+# doesnt need root, just checks the shim builds and exports exist
 
 set -euo pipefail
 
@@ -17,9 +17,7 @@ log_pass() { echo -e "${GREEN}[PASS]${NC} $*"; }
 log_fail() { echo -e "${RED}[FAIL]${NC} $*"; }
 log_info() { echo -e "${YELLOW}[INFO]${NC} $*"; }
 
-# --------------------------------------------------------------------------- #
-# Test 1: Library can be dlopen'd and exports are resolvable
-# --------------------------------------------------------------------------- #
+# test 1: library exports
 test_dlopen_exports() {
     log_info "Test 1: Library exports..."
     local lib="${BUILD_DIR}/libjavelin.so"
@@ -29,7 +27,7 @@ test_dlopen_exports() {
         return 1
     fi
 
-    # Check that expected symbols are present and dynamic
+    # check symbols exist
     local expected=(
         jv_query_system_info
         jv_read_memory
@@ -61,22 +59,15 @@ test_dlopen_exports() {
     log_pass "$found/${#expected[@]} native exports found"
 }
 
-# --------------------------------------------------------------------------- #
-# Test 2: Seccomp filter can be installed in a child process
-# --------------------------------------------------------------------------- #
+# test 2: seccomp
 test_seccomp_install() {
     log_info "Test 2: Seccomp filter installation..."
 
-    # We can't easily test seccomp from shell without a small helper,
-    # so we verify the shim binary links against the right libs and
-    # that the environment variable gate works.
-    # Seccomp is tested directly by test_seccomp binary
+    # cant easily test seccomp from shell, unit test covers it
     log_pass "seccomp filter verified by unit test"
 }
 
-# --------------------------------------------------------------------------- #
-# Test 3: Proton override spec is valid JSON
-# --------------------------------------------------------------------------- #
+# test 3: proton spec (currently skipped)
 test_proton_spec() {
     log_info "Test 3: Proton override spec JSON validity..."
 
@@ -84,9 +75,7 @@ test_proton_spec() {
     log_pass "Proton spec check skipped"
 }
 
-# --------------------------------------------------------------------------- #
-# Test 4: eBPF source compiles syntax-check (clang -fsyntax-only)
-# --------------------------------------------------------------------------- #
+# test 4: eBPF syntax check
 test_ebpf_syntax() {
     log_info "Test 4: eBPF source syntax check..."
 
@@ -99,7 +88,7 @@ test_ebpf_syntax() {
         *)       target_arch="x86" ;;
     esac
 
-    # We skip if vmlinux.h is missing; the eBPF code references it
+    # skip if vmlinux.h missing
     if [[ ! -f "${PROJECT_ROOT}/src/ebpf/vmlinux.h" ]]; then
         log_info "Skipping eBPF syntax check (vmlinux.h missing; run 'bpftool btf dump file /sys/kernel/btf/vmlinux format c > src/ebpf/vmlinux.h')"
         return 0
@@ -117,9 +106,7 @@ test_ebpf_syntax() {
     log_pass "eBPF source syntax OK"
 }
 
-# --------------------------------------------------------------------------- #
-# Test 5: Run unit tests
-# --------------------------------------------------------------------------- #
+# test 5: unit tests
 test_unit() {
     log_info "Test 5: Unit test suite..."
 
@@ -140,13 +127,9 @@ test_unit() {
     log_pass "All unit tests passed"
 }
 
-# --------------------------------------------------------------------------- #
-# Main
-# --------------------------------------------------------------------------- #
+
 main() {
-    echo "=============================================="
-    echo "Javelin Linux Compatibility — Integration Tests"
-    echo "=============================================="
+    echo "integration tests"
     echo ""
 
     local failed=0
@@ -159,10 +142,10 @@ main() {
 
     echo ""
     if [[ $failed -eq 0 ]]; then
-        echo -e "${GREEN}All integration tests passed.${NC}"
+        echo -e "${GREEN}all passed${NC}"
         return 0
     else
-        echo -e "${RED}$failed integration test(s) failed.${NC}"
+        echo -e "${RED}$failed failed${NC}"
         return 1
     fi
 }

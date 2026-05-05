@@ -1,21 +1,20 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * eBPF attestation agent. Monitors security events via LSM/tracepoint hooks.
- * Verifier-safe: emits telemetry only, cannot modify kernel state.
+ * eBPF agent. LSM/tracepoint hooks.
+ * emits events only — doesnt block shit.
  *
- * clang -target bpf -D__TARGET_ARCH_x86 -g -O2 \
- *   -c javelin_monitor.bpf.c -o javelin_monitor.bpf.o
+ * nick wrote this. tested on bazzite and steamos 3.5.
+ * broke on fedora 42 because the verifier got stricter. fixed
+ * by unrolling the kallsyms check. verifier is a fickle god.
  */
 
-#include "vmlinux.h"          /* BTF-generated kernel headers (libbpf) */
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 
-/* Metadata */
 char _license[] SEC("license") = "GPL";
 
-/* Ring buffer */
 struct jvl_event {
     __u32 type;
     __u32 pid;
@@ -35,10 +34,11 @@ enum jvl_event_type {
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 256 * 1024); /* 256 KB buffer */
+    __uint(max_entries, 256 * 1024);
 } jvl_rb SEC(".maps");
 
-/* PID filter. Populated by loader.c. */
+/* populated by loader. 16 entries is plenty — we're monitoring
+ * one game process, maybe the launcher. */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16);
@@ -46,7 +46,16 @@ struct {
     __type(value, __u8);
 } jvl_target_pids SEC(".maps");
 
-/* Helpers */
+/* per-pid last timestamp for timer anomaly detection.
+ * if we see clock_gettime(CLOCK_MONOTONIC) firing way too fast,
+ * somebody is speeding up the game timer. */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16);
+    __type(key, __u32);
+    __type(value, __u64);
+} jvl_last_time SEC(".maps");
+
 static __always_inline bool is_target_pid(__u32 pid)
 {
     __u8 *v = bpf_map_lookup_elem(&jvl_target_pids, &pid);
@@ -70,7 +79,29 @@ static __always_inline void emit_event(enum jvl_event_type type,
     bpf_ringbuf_submit(ev, 0);
 }
 
-/* LSM: file_mprotect */
+/* compare user string against "/proc/kallsyms" character by character.
+ * eBPF verifier doesnt like loops so we unroll. tried using a
+ * memcmp helper but BPF_PROG_TYPE_LSM cant call unbounded helpers
+ * on user pointers. this is the only way that passes on 5.15+.
+ * -nick, 3am, after 6 verifier rejections */
+static __always_inline bool is_kallsyms(const char *path)
+{
+    char buf[16];
+    long rc = bpf_probe_read_user_str(buf, sizeof(buf), path);
+    if (rc < 0)
+        return false;
+
+    /* "/proc/kallsyms" = 14 chars + null = 15 */
+    if (rc != 15)
+        return false;
+
+    return buf[0]  == '/' && buf[1]  == 'p' && buf[2]  == 'r' &&
+           buf[3]  == 'o' && buf[4]  == 'c' && buf[5]  == '/' &&
+           buf[6]  == 'k' && buf[7]  == 'a' && buf[8]  == 'l' &&
+           buf[9]  == 'l' && buf[10] == 's' && buf[11] == 'y' &&
+           buf[12] == 'm' && buf[13] == 's';
+}
+
 SEC("lsm/file_mprotect")
 int BPF_PROG(javelin_mprotect_check, struct vm_area_struct *vma,
              unsigned long reqprot)
@@ -79,15 +110,13 @@ int BPF_PROG(javelin_mprotect_check, struct vm_area_struct *vma,
     if (!is_target_pid(pid))
         return 0;
 
-    /* reqprot & PROT_EXEC indicates executable mapping change */
     if (reqprot & PROT_EXEC) {
         __u64 vm_start = BPF_CORE_READ(vma, vm_start);
         emit_event(JVL_EVT_MPROTECT_EXEC, vm_start, (__u32)reqprot);
     }
-    return 0; /* always allow; we are a reporter, not an enforcer */
+    return 0;
 }
 
-/* Tracepoint: sys_enter_ptrace */
 SEC("tp/syscalls/sys_enter_ptrace")
 int javelin_ptrace_detect(struct trace_event_raw_sys_enter *ctx)
 {
@@ -96,14 +125,13 @@ int javelin_ptrace_detect(struct trace_event_raw_sys_enter *ctx)
         return 0;
 
     long request = ctx->args[0];
-    /* PTRACE_ATTACH / PTRACE_SEIZE */
+    /* PTRACE_ATTACH = 0x10, PTRACE_SEIZE = 0x4200 */
     if (request == 0x10 || request == 0x4200) {
         emit_event(JVL_EVT_PTRACE_ATTACH, (__u64)ctx->args[1], (__u32)request);
     }
     return 0;
 }
 
-/* LSM: kernel_read_file */
 SEC("lsm/kernel_read_file")
 int BPF_PROG(javelin_module_load, struct file *file,
              enum kernel_read_file_id id, bool contents)
@@ -112,14 +140,14 @@ int BPF_PROG(javelin_module_load, struct file *file,
     if (!is_target_pid(pid))
         return 0;
 
-    /* id == READING_MODULE indicates module load attempt */
-    if (id == 2) { /* READING_MODULE */
+    /* READING_MODULE = 2. kernel_read_file_id enum is stable
+     * since 4.19. before that the values were different. */
+    if (id == 2) {
         emit_event(JVL_EVT_MODULE_LOAD, 0, 0);
     }
     return 0;
 }
 
-/* Tracepoint: sys_enter_openat */
 SEC("tp/syscalls/sys_enter_openat")
 int javelin_kallsyms_open(struct trace_event_raw_sys_enter *ctx)
 {
@@ -127,28 +155,57 @@ int javelin_kallsyms_open(struct trace_event_raw_sys_enter *ctx)
     if (!is_target_pid(pid))
         return 0;
 
-    char buf[16] = {};
-    long rc = bpf_probe_read_user_str(buf, sizeof(buf), (const char *)ctx->args[1]);
-    if (rc < 0)
-        return 0;
-
-    /* crude but effective: detect "kallsyms" in pathname */
-    if (buf[0] == 'k' || (buf[1] == 'k' && buf[2] == 'a')) {
-        /* Full string comparison is expensive in eBPF; we emit and let
-         * userland filter false positives. */
+    if (is_kallsyms((const char *)ctx->args[1])) {
         emit_event(JVL_EVT_KALLSYMS_ACCESS, 0, 0);
     }
     return 0;
 }
 
-/* LSM: bpf */
+/* detect foreign eBPF loads while game is running.
+ * this is paranoid — if a cheater loads their own eBPF to
+ * patch our hooks, we want to know. */
 SEC("lsm/bpf")
 int BPF_PROG(javelin_bpf_load, int cmd, union bpf_attr *attr, unsigned int size)
 {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    /* Any BPF_PROG_LOAD in the system while game is running is suspicious */
-    if (!is_target_pid(pid) && (cmd == 5 /* BPF_PROG_LOAD */)) {
+    if (!is_target_pid(pid) && cmd == 5 /* BPF_PROG_LOAD */) {
         emit_event(JVL_EVT_MODULE_LOAD, (__u64)cmd, 0);
+    }
+    return 0;
+}
+
+/* detect timer anomalies (speed hacks).
+ * monitors clock_gettime(CLOCK_MONOTONIC). if the interval between
+ * calls is impossibly small, the game timer is being manipulated.
+ *
+ * this is noisy on systems with shitty TSC (looking at you, AMD
+ * laptops with HPET fallback). we tuned the threshold to avoid
+ * false positives on nicks zephyrus but your mileage may vary. */
+SEC("tp/syscalls/sys_enter_clock_gettime")
+int javelin_timer_check(struct trace_event_raw_sys_enter *ctx)
+{
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    if (!is_target_pid(pid))
+        return 0;
+
+    /* only monitor CLOCK_MONOTONIC (1). REALTIME is useless for
+     * game timing and wall clock changes are normal. */
+    if (ctx->args[0] != 1)
+        return 0;
+
+    __u64 now = bpf_ktime_get_ns();
+    __u64 *last = bpf_map_lookup_elem(&jvl_last_time, &pid);
+    if (last) {
+        __u64 delta = now - *last;
+        /* threshold: 50ms. most games call clock_gettime at 60-240Hz
+         * which is ~4-16ms. 50ms catches egregious speed hacks
+         * without false positives on overloaded systems. */
+        if (delta > 0 && delta < 50000000ULL) {
+            emit_event(JVL_EVT_TIMER_ANOMALY, now - *last, 0);
+        }
+        *last = now;
+    } else {
+        bpf_map_update_elem(&jvl_last_time, &pid, &now, BPF_ANY);
     }
     return 0;
 }

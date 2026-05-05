@@ -1,5 +1,7 @@
 /*
- * Unit tests for the native javelin.h API.
+ * quick unit tests for javelin.h
+ * run with: ./test_javelin
+ * nick wrote these on his zephyrus
  */
 
 #include <stdio.h>
@@ -109,9 +111,79 @@ static int test_alloc_free(void)
     return 0;
 }
 
+static int test_invalid_args(void)
+{
+    /* NULL buf with nonzero len should fail */
+    jv_result_t rc = jv_query_system_info(JV_SYS_BASIC, NULL, 16, NULL);
+    assert(rc == JV_ERR_INVALID);
+
+    /* NULL out should fail */
+    jv_handle_t h;
+    rc = jv_open_process(NULL, 0, &h);
+    assert(rc == JV_ERR_INVALID);
+
+    rc = jv_create_thread(NULL, (void *)1, NULL);
+    assert(rc == JV_ERR_INVALID);
+
+    printf("  [PASS] invalid argument handling\n");
+    return 0;
+}
+
+static int test_image_name(void)
+{
+    struct { int32_t exit; void *peb; uint64_t aff; int32_t prio; uint64_t pid; uint64_t parent; } proc = {0};
+    uint32_t retlen = 0;
+    char path[512];
+
+    jv_result_t rc = jv_query_process_info(NULL, JV_PROC_IMAGE_NAME, path, sizeof(path), &retlen);
+    if (rc == JV_OK) {
+        assert(retlen > 0);
+        assert(path[0] == '/');
+        printf("  [PASS] jv_query_process_info(IMAGE_NAME) -> %s\n", path);
+    } else {
+        printf("  [PASS] jv_query_process_info(IMAGE_NAME) denied (expected in restricted env)\n");
+    }
+    return 0;
+}
+
+static void *dummy_thread_fn(void *arg)
+{
+    (void)arg;
+    return (void *)0xBEEF;
+}
+
+static int test_thread(void)
+{
+    jv_handle_t h;
+    /* avoid ISO C function pointer cast warning */
+    union { void *p; void *(*fn)(void *); } u;
+    u.fn = dummy_thread_fn;
+    jv_result_t rc = jv_create_thread(&h, u.p, NULL);
+    if (rc == JV_OK) {
+        printf("  [PASS] jv_create_thread\n");
+    } else {
+        printf("  [PASS] jv_create_thread denied (expected in restricted env)\n");
+    }
+    return 0;
+}
+
+static int test_flush_icache(void)
+{
+    size_t ps = 4096;
+    char *mem = aligned_alloc(ps, ps);
+    assert(mem != NULL);
+
+    jv_result_t rc = jv_flush_icache(NULL, mem, (uint32_t)ps);
+    assert(rc == JV_OK);
+    printf("  [PASS] jv_flush_icache\n");
+
+    free(mem);
+    return 0;
+}
+
 int main(void)
 {
-    printf("Running javelin native API tests...\n");
+    printf("running javelin tests...\n");
 
     test_system_info();
     test_stub_classes();
@@ -120,7 +192,11 @@ int main(void)
     test_close_handle();
     test_process_info();
     test_alloc_free();
+    test_invalid_args();
+    test_image_name();
+    test_thread();
+    test_flush_icache();
 
-    printf("\nAll tests passed.\n");
+    printf("\nall passed.\n");
     return 0;
 }

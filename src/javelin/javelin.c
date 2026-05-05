@@ -1,15 +1,12 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * javelin linux native implementation
  *
- * core engine. speaks linux natively:
- * - /proc for process introspection
- * - process_vm_readv/writev for memory access
- * - mmap/mprotect for memory management
- * - pthreads for threading
- * - ptrace for debug operations
+ * core engine. implements what the windows javelin DLL expects
+ * using linux syscalls. no wine glue here.
  *
- * no windows types, no wine glue. pure linux code that implements the
- * contract javelin's windows DLL expects.
+ * nick wrote most of this. erick tested it on his ally.
+ * dyllan keeps breaking the build with clang-format.
  */
 
 #include "javelin.h"
@@ -29,6 +26,7 @@
 #include <sys/prctl.h>
 #include <signal.h>
 
+/* windows PAGE_EXECUTE_READWRITE flags -> linux prot bits */
 static int prot_from_jv(uint32_t p)
 {
     int r = PROT_NONE;
@@ -38,6 +36,8 @@ static int prot_from_jv(uint32_t p)
     return r;
 }
 
+/* NULL handle means "current process". windows uses GetCurrentProcess()
+ * which is ((HANDLE)-1). we use that too. */
 static pid_t handle_to_pid(jv_handle_t h)
 {
     if (h == JV_INVALID_HANDLE || h == NULL)
@@ -45,6 +45,8 @@ static pid_t handle_to_pid(jv_handle_t h)
     return (pid_t)(uintptr_t)h;
 }
 
+/* NtQuerySystemInformation. games call this to get page size, cpu count,
+ * and memory layout so they know how much RAM to waste on textures. */
 struct sys_basic_info {
     uint32_t page_size;
     uint32_t phys_pages;
@@ -69,6 +71,8 @@ jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32
         info.page_size   = (uint32_t)sysconf(_SC_PAGESIZE);
         info.phys_pages  = (uint32_t)sysconf(_SC_PHYS_PAGES);
         info.alloc_gran  = info.page_size;
+        /* x86_64 canonical address space. these are hardcoded on windows too.
+         * arm64 is different but we dont have an arm64 build yet. */
         info.min_user_addr = 0x0000000000010000ULL;
         info.max_user_addr = 0x00007FFFFFFFFFFFULL;
         info.num_cpus    = (char)sysconf(_SC_NPROCESSORS_ONLN);
@@ -79,20 +83,31 @@ jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32
         return JV_OK;
     }
     default:
+        /* unknown info class. zero the buffer so the game doesnt crash
+         * reading garbage. this is what wine does too. */
         if (buf) memset(buf, 0, len);
         if (out_len) *out_len = len;
         return JV_OK;
     }
 }
 
+/* NtQueryInformationProcess. anti-cheat queries PID, image name, debug port. */
 jv_result_t jv_query_process_info(jv_handle_t proc, int info_class, void *buf, uint32_t len, uint32_t *out_len)
 {
     pid_t pid = handle_to_pid(proc);
 
     switch (info_class) {
     case JV_PROC_BASIC: {
-        struct { int32_t exit; void *peb; uint64_t aff; int32_t prio; uint64_t pid; uint64_t parent; } info = {0};
+        struct {
+            int32_t exit;
+            void *peb;
+            uint64_t aff;
+            int32_t prio;
+            uint64_t pid;
+            uint64_t parent;
+        } info = {0};
         info.pid = (uint64_t)pid;
+        /* windows normal priority class. doesnt matter for linux. */
         info.prio = 8;
         size_t copy = (len < sizeof(info)) ? len : sizeof(info);
         memcpy(buf, &info, copy);
@@ -100,6 +115,8 @@ jv_result_t jv_query_process_info(jv_handle_t proc, int info_class, void *buf, u
         return JV_OK;
     }
     case JV_PROC_DEBUG_PORT: {
+        /* windows debug port is a handle. on linux we just say 0
+         * and let the eBPF tracepoint catch ptrace instead. */
         uint32_t port = 0;
         size_t copy = (len < sizeof(port)) ? len : sizeof(port);
         memcpy(buf, &port, copy);
@@ -107,6 +124,8 @@ jv_result_t jv_query_process_info(jv_handle_t proc, int info_class, void *buf, u
         return JV_OK;
     }
     case JV_PROC_IMAGE_NAME: {
+        /* readlink /proc/PID/exe. fails for setuid binaries or if
+         * the kernel has hidepid=2 mounted. not much we can do. */
         char path[512];
         char link[64];
         snprintf(link, sizeof(link), "/proc/%d/exe", pid);
@@ -125,6 +144,7 @@ jv_result_t jv_query_process_info(jv_handle_t proc, int info_class, void *buf, u
     }
 }
 
+/* NtOpenProcess. anti-cheat opens game process for memory scanning. */
 jv_result_t jv_open_process(jv_handle_t *out, uint32_t access, void *client_id)
 {
     (void)access;
@@ -132,6 +152,10 @@ jv_result_t jv_open_process(jv_handle_t *out, uint32_t access, void *client_id)
         return JV_ERR_INVALID;
 
     pid_t pid = *(pid_t *)client_id;
+    /* kill(pid, 0) checks if the process exists without sending a signal.
+     * EPERM means it exists but we cant signal it. we still return OK
+     * because process_vm_readv might work via YAMA ptrace_scope.
+     * this is wrong on systems without CROSS_MEMORY_ATTACH but fuck it. */
     if (pid <= 0 || (kill(pid, 0) != 0 && errno != EPERM))
         return JV_ERR_DENIED;
 
@@ -142,9 +166,14 @@ jv_result_t jv_open_process(jv_handle_t *out, uint32_t access, void *client_id)
 jv_result_t jv_close_handle(jv_handle_t h)
 {
     (void)h;
+    /* windows needs CloseHandle. linux doesnt have per-process handles
+     * in the same way. nothing to do. */
     return JV_OK;
 }
 
+/* NtReadVirtualMemory. primary API for anti-cheat memory scanning.
+ * process_vm_readv needs CAP_SYS_PTRACE or YAMA ptrace_scope=0.
+ * on steam deck with yama level 1, this works for child processes. */
 jv_result_t jv_read_memory(jv_handle_t proc, void *addr, void *buf, uint32_t len, uint32_t *out_len)
 {
     pid_t pid = handle_to_pid(proc);
@@ -159,6 +188,7 @@ jv_result_t jv_read_memory(jv_handle_t proc, void *addr, void *buf, uint32_t len
     return JV_OK;
 }
 
+/* NtWriteVirtualMemory. rarely used but needed for completeness. */
 jv_result_t jv_write_memory(jv_handle_t proc, void *addr, const void *buf, uint32_t len, uint32_t *out_len)
 {
     pid_t pid = handle_to_pid(proc);
@@ -173,10 +203,13 @@ jv_result_t jv_write_memory(jv_handle_t proc, void *addr, const void *buf, uint3
     return JV_OK;
 }
 
+/* NtProtectVirtualMemory. anti-cheat monitors W->X transitions. */
 jv_result_t jv_protect_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32_t prot, uint32_t *old_prot)
 {
     (void)proc;
     long ps = sysconf(_SC_PAGESIZE);
+    /* mprotect needs page-aligned addr. windows VirtualProtect does this
+     * internally too. we align down and extend length to cover the tail. */
     void *page = (void *)(((uintptr_t)*addr) & ~(ps - 1));
     size_t plen = *len;
     if (page != *addr)
@@ -185,10 +218,13 @@ jv_result_t jv_protect_memory(jv_handle_t proc, void **addr, uint32_t *len, uint
     if (mprotect(page, plen, prot_from_jv(prot)) != 0)
         return JV_ERR_DENIED;
 
+    /* FIXME: we should return the old protection bits. nobody seems to
+     * check this on linux but windows code definitely does. */
     if (old_prot) *old_prot = 0;
     return JV_OK;
 }
 
+/* NtAllocateVirtualMemory. anti-cheat allocates scan buffers. */
 jv_result_t jv_alloc_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32_t flags, uint32_t prot)
 {
     (void)proc;
@@ -199,8 +235,11 @@ jv_result_t jv_alloc_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32
     void *want = *addr;
     if (want != NULL && (flags & JV_MEM_TOPDOWN)) {
 #ifdef MAP_FIXED_NOREPLACE
+        /* linux 4.17+. fails if addr is already mapped instead of clobbering.
+         * this is what windows does with MEM_RESERVE. */
         mflags |= MAP_FIXED_NOREPLACE;
 #else
+        /* ancient kernel. fall back to MAP_FIXED and hope. */
         mflags |= MAP_FIXED;
 #endif
     }
@@ -213,10 +252,14 @@ jv_result_t jv_alloc_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32
     return JV_OK;
 }
 
+/* NtFreeVirtualMemory. */
 jv_result_t jv_free_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32_t free_type)
 {
     (void)proc;
     (void)free_type;
+    /* windows distinguishes MEM_DECOMMIT and MEM_RELEASE. on linux
+     * munmap is always MEM_RELEASE. we could mprotect to PROT_NONE for
+     * DECOMMIT but nobody has asked for it yet. */
     if (!addr || !len)
         return JV_ERR_INVALID;
     if (munmap(*addr, *len) != 0)
@@ -226,6 +269,7 @@ jv_result_t jv_free_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32_
     return JV_OK;
 }
 
+/* NtFlushInstructionCache. needed after JIT or code patches. */
 jv_result_t jv_flush_icache(jv_handle_t proc, void *addr, uint32_t len)
 {
     (void)proc;
@@ -234,16 +278,49 @@ jv_result_t jv_flush_icache(jv_handle_t proc, void *addr, uint32_t len)
     return JV_OK;
 }
 
+/* NtCreateThread. anti-cheat spawns watchdog threads.
+ * strict C forbids void* -> fnptr cast. use a union. glibc does this
+ * internally too, look at pthread_create man page source. */
+typedef union { void *p; void *(*fn)(void *); } jv_fnptr;
+
+static void *thread_trampoline(void *arg)
+{
+    void **params = arg;
+    jv_fnptr u;
+    u.p = params[0];
+    void *(*fn)(void *) = u.fn;
+    void *fn_arg = params[1];
+    free(params);
+    return fn(fn_arg);
+}
+
 jv_result_t jv_create_thread(jv_handle_t *out, void *start, void *arg)
 {
+    if (!out || !start)
+        return JV_ERR_INVALID;
+
+    void **params = malloc(sizeof(void *) * 2);
+    if (!params)
+        return JV_ERR_NOMEM;
+    params[0] = start;
+    params[1] = arg;
+
     pthread_t tid;
-    int rc = pthread_create(&tid, NULL, (void *(*)(void *))start, arg);
-    if (rc != 0)
+    int rc = pthread_create(&tid, NULL, thread_trampoline, params);
+    if (rc != 0) {
+        free(params);
         return JV_ERR_DENIED;
+    }
+    /* FIXME: should probably set detach state so we dont leak pthread_t
+     * if the caller never joins. wine does this differently. */
     *out = (jv_handle_t)(uintptr_t)tid;
     return JV_OK;
 }
 
+/* NtDebugActiveProcess. anti-cheat attaches to detect debuggers.
+ * this blocks until the tracee stops. if someone else is already
+ * tracing it, we hang here. PTRACE_SEIZE exists but requires 3.4+.
+ * most anti-cheats just do PTRACE_ATTACH and accept the race. */
 jv_result_t jv_debug_attach(jv_handle_t proc)
 {
     pid_t pid = handle_to_pid(proc);
@@ -253,13 +330,18 @@ jv_result_t jv_debug_attach(jv_handle_t proc)
     return JV_OK;
 }
 
+/* NtRemoveProcessDebug. */
 jv_result_t jv_debug_detach(jv_handle_t proc)
 {
     pid_t pid = handle_to_pid(proc);
+    /* ignore errors. if the process exited already, ptrace fails
+     * with ESRCH and we dont care. */
     ptrace(PTRACE_DETACH, pid, NULL, NULL);
     return JV_OK;
 }
 
+/* NtQueryValueKey. registry stub. games dont actually call this much
+ * on linux because theres no registry, but we need the export. */
 jv_result_t jv_query_value(void *key, void *name, uint32_t class, void *buf, uint32_t len, uint32_t *out_len)
 {
     (void)key; (void)name; (void)class;
@@ -270,21 +352,31 @@ jv_result_t jv_query_value(void *key, void *name, uint32_t class, void *buf, uin
     return JV_OK;
 }
 
+/* NtCreateFile. this is a lazy stub. windows CreateFile has like 7
+ * different disposition modes and access masks. we just do O_CREAT|O_RDWR.
+ * if a real game ever calls this with specific flags, it'll break. */
 jv_result_t jv_create_file(jv_handle_t *out, const char *path, uint32_t access, uint32_t disposition)
 {
-    (void)path; (void)access; (void)disposition;
-    int fd = open("/dev/null", O_RDONLY);
+    (void)access; (void)disposition;
+    if (!path || !out)
+        return JV_ERR_INVALID;
+
+    int fd = open(path, O_CREAT | O_RDWR, 0644);
     if (fd < 0)
         return JV_ERR_DENIED;
     *out = (jv_handle_t)(uintptr_t)(unsigned int)fd;
     return JV_OK;
 }
 
+/* callback registration stub. real anti-cheats use this for event
+ * notifications (cheat detected, scan complete, etc). */
 jv_result_t jv_register_callbacks(void *reg, void **out)
 {
     (void)reg;
-    static int dummy = 1;
-    *out = &dummy;
+    if (!out)
+        return JV_ERR_INVALID;
+    static unsigned int cb_handle = 1;
+    *out = (void *)(uintptr_t)cb_handle++;
     return JV_OK;
 }
 

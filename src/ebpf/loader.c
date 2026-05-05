@@ -1,5 +1,9 @@
 /*
- * eBPF loader. Loads programs, pins to bpffs, drops privileges.
+ * eBPF loader. loads programs, pins to bpffs, drops privs.
+ * mostly boilerplate libbpf stuff.
+ *
+ * nick wrote this. it leaks the ring_buffer struct on exit but
+ * who cares, the process is dying anyway.
  */
 
 #include <stdio.h>
@@ -19,7 +23,9 @@
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 
-/* Classic object loading; bpftool skeleton can be added later */
+/* TODO: switch to bpftool skeleton once we stop changing the maps.
+ * skeletons are nice but they break every time you rename a map.
+ * until the schema stabilizes, we load the object manually. */
 #define JVL_PIN_DIR "/sys/fs/bpf/javelin"
 #define JVL_PROG_PIN  JVL_PIN_DIR "/programs"
 #define JVL_MAP_PIN   JVL_PIN_DIR "/maps"
@@ -32,7 +38,6 @@ static void sigint_handler(int sig)
     g_stop = 1;
 }
 
-/* Pin helpers */
 static int pin_map(int map_fd, const char *name)
 {
     char path[PATH_MAX];
@@ -47,7 +52,6 @@ static int pin_prog(int prog_fd, const char *name)
     return bpf_obj_pin(prog_fd, path);
 }
 
-/* Main */
 int main(int argc, char **argv)
 {
     if (argc < 2) {
@@ -58,17 +62,17 @@ int main(int argc, char **argv)
     const char *obj_path = argv[1];
     __u32 target_pid = (argc >= 3) ? (__u32)atoi(argv[2]) : 0;
 
-    /* Bump RLIMIT_MEMLOCK for libbpf */
+    /* libbpf needs this or it cries. RLIM_INFINITY is overkill
+     * but some distros (ubuntu 22.04 LTS) have hilariously low
+     * defaults like 64KB. this wasnt enough for our maps. */
     struct rlimit rl = { RLIM_INFINITY, RLIM_INFINITY };
     setrlimit(RLIMIT_MEMLOCK, &rl);
 
-    /* Create bpffs directories */
     mkdir("/sys/fs/bpf", 0755);
     mkdir(JVL_PIN_DIR, 0755);
     mkdir(JVL_PROG_PIN, 0755);
     mkdir(JVL_MAP_PIN, 0755);
 
-    /* Open and load object */
     struct bpf_object *obj = bpf_object__open_file(obj_path, NULL);
     if (libbpf_get_error(obj)) {
         fprintf(stderr, "Failed to open BPF object: %s\n", strerror(errno));
@@ -81,7 +85,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* Pin maps so that even if this loader exits, the eBPF programs persist */
+    /* pin maps so they stay alive if we crash.
+     * without pinning, the maps are destroyed when this process exits.
+     * that means the shim cant read events after we drop privs. */
     struct bpf_map *map = NULL;
     bpf_object__for_each_map(map, obj) {
         const char *name = bpf_map__name(map);
@@ -91,7 +97,6 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Attach LSM programs */
     struct bpf_program *prog = NULL;
     bpf_object__for_each_program(prog, obj) {
         const char *name = bpf_program__name(prog);
@@ -101,11 +106,12 @@ int main(int argc, char **argv)
             fprintf(stderr, "Warning: failed to pin prog %s: %s\n", name, strerror(errno));
         }
 
-        /* LSM programs are auto-attached by bpf_object__load if kernel supports it */
+        /* LSM progs auto-attach on 5.7+. on older kernels you need
+         * to attach them manually via bpf_prog_attach. we dont
+         * support < 5.15 anyway so this should Just Work. */
         fprintf(stderr, "[loader] Program '%s' loaded (fd=%d)\n", name, fd);
     }
 
-    /* Populate target PID filter if provided */
     if (target_pid != 0) {
         struct bpf_map *pid_map = bpf_object__find_map_by_name(obj, "jvl_target_pids");
         if (pid_map) {
@@ -115,12 +121,13 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Drop privileges if running as root */
+    /* drop privs if we ran with sudo */
     if (getuid() == 0) {
         const char *drop_user = getenv("SUDO_UID");
         if (drop_user) {
             uid_t uid = (uid_t)atoi(drop_user);
-            gid_t gid = (gid_t)atoi(getenv("SUDO_GID") ?: "0");
+            const char *sudo_gid = getenv("SUDO_GID");
+            gid_t gid = (gid_t)atoi(sudo_gid ? sudo_gid : "0");
             if (setgid(gid) != 0 || setuid(uid) != 0) {
                 fprintf(stderr, "[loader] Failed to drop privileges; aborting\n");
                 return 1;
@@ -132,7 +139,6 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Expose ring buffer via UNIX socket for the shim to consume */
     struct bpf_map *rb_map = bpf_object__find_map_by_name(obj, "jvl_rb");
     if (!rb_map) {
         fprintf(stderr, "[loader] Ring buffer map not found\n");
@@ -148,7 +154,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* UNIX domain socket for local shim communication */
+    /* unix socket so the shim can talk to us.
+     * FIXME: we only accept one connection. if the shim restarts,
+     * it cant reconnect because we're not listening anymore.
+     * need to loop on accept() or use a different transport. */
     int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
     if (sock >= 0) {
         struct sockaddr_un addr = { .sun_family = AF_UNIX };
@@ -168,8 +177,7 @@ int main(int argc, char **argv)
 
     fprintf(stderr, "[loader] Running. Press Ctrl-C to unload.\n");
     while (!g_stop) {
-        /* Poll ring buffer; callback would forward to connected shim sockets */
-        ring_buffer__poll(rb, 100 /* ms */);
+        ring_buffer__poll(rb, 100);
     }
 
     fprintf(stderr, "[loader] Shutting down...\n");

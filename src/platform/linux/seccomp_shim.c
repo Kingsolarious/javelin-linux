@@ -1,6 +1,13 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
- * Seccomp-bpf filter for the shim process.
- * Restricts syscalls after initialization.
+ * seccomp-bpf filter.
+ * locks down the shim after init.
+ * dyllan suggested this after we saw ptrace abuse in the wild.
+ *
+ * WARNING: this whitelist is probably too restrictive for wine/proton.
+ * wine calls all kinds of shit we dont allow here (openat, fstat, etc).
+ * if your game crashes after seccomp install, thats why.
+ * we need to add a wine-specific allowlist but nobody has done it yet.
  */
 
 #include <sys/prctl.h>
@@ -10,6 +17,10 @@
 #include <linux/errno.h>
 #include <stddef.h>
 
+/* these numbers are x86_64 only. on arm64 theyre different.
+ * if you try to build this on a steam deck (aarch64) itll break.
+ * we need to use SYS_process_vm_readv from <sys/syscall.h> instead
+ * but glibc headers are inconsistent across distros. */
 #ifndef __NR_process_vm_readv
 #define __NR_process_vm_readv 310
 #endif
@@ -46,6 +57,8 @@ int jv_seccomp_install(void)
         BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_exit_group, 0, 1),
         BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),
 
+        /* block everything else with ENOSYS. this breaks getpid() which
+         * wine uses internally. see TODO.md. */
         BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ERRNO | (ENOSYS & SECCOMP_RET_DATA)),
     };
 

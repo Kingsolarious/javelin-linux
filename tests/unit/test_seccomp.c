@@ -1,6 +1,4 @@
-/*
- * Seccomp filter test.
- */
+/* seccomp filter test */
 
 #include <stdio.h>
 #include <unistd.h>

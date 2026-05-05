@@ -1,14 +1,11 @@
 ---
 name: Feature Request
-about: Suggest an idea
+about: suggest something
 labels: enhancement
 ---
 
-## Summary
-What do you want?
+## what do you want
 
-## Motivation
-Why is this needed?
+## why
 
-## Details
-How should it work?
+## how should it work

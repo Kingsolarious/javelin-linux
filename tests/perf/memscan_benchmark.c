@@ -1,8 +1,6 @@
 /*
- * Javelin Linux Compatibility — Memory Scan Performance Benchmark
- *
- * Validates that process_vm_readv() throughput meets the >500 MB/s target.
- * Also measures syscall latency and mmap/mprotect overhead.
+ * memscan benchmark
+ * quick throughput test for process_vm_readv and mprotect
  */
 
 #include <stdio.h>
@@ -20,9 +18,7 @@
 #define WARMUP_ITERATIONS 10
 #define BENCHMARK_ITERATIONS 100
 
-/* -------------------------------------------------------------------------- */
-/* Timing utilities                                                           */
-/* -------------------------------------------------------------------------- */
+/* timing */
 static inline uint64_t now_ns(void)
 {
     struct timespec ts;
@@ -35,9 +31,7 @@ static double mb_per_sec(size_t bytes, uint64_t ns)
     return (double)bytes / ((double)ns / 1e9) / (1024.0 * 1024.0);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Benchmark 1: Self-process memory read throughput                           */
-/* -------------------------------------------------------------------------- */
+/* benchmark 1: self-read throughput */
 static int bench_self_read(size_t region_size)
 {
     char *src = mmap(NULL, region_size, PROT_READ | PROT_WRITE,
@@ -47,7 +41,7 @@ static int bench_self_read(size_t region_size)
         return 1;
     }
 
-    /* Fill with non-zero data to prevent kernel page deduplication tricks */
+    /* fill so the kernel doesn't zero-page dedup */
     for (size_t i = 0; i < region_size; i++)
         src[i] = (char)(i & 0xFF);
 
@@ -96,9 +90,7 @@ static int bench_self_read(size_t region_size)
     return 0;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Benchmark 2: Chunked read (simulates Javelin's pagetable walk pattern)     */
-/* -------------------------------------------------------------------------- */
+/* benchmark 2: chunked vector read */
 static int bench_chunked_read(size_t total_size, size_t chunk_size)
 {
     char *src = mmap(NULL, total_size, PROT_READ | PROT_WRITE,
@@ -125,7 +117,6 @@ static int bench_chunked_read(size_t total_size, size_t chunk_size)
         remote[i].iov_len  = chunk_size;
     }
 
-    /* Linux UIO_MAXIOV is typically 1024; chunk large vector reads */
     const int max_iov = 1024;
     uint64_t start = now_ns();
     for (size_t offset = 0; offset < num_chunks; offset += max_iov) {
@@ -138,7 +129,7 @@ static int bench_chunked_read(size_t total_size, size_t chunk_size)
             perror("process_vm_readv (chunked)");
             return 1;
         }
-        (void)rc; /* accumulate; total read validated by loop completion */
+        (void)rc;
     }
     uint64_t elapsed = now_ns() - start;
 
@@ -153,9 +144,7 @@ static int bench_chunked_read(size_t total_size, size_t chunk_size)
     return 0;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Benchmark 3: mprotect latency (W→X transitions)                            */
-/* -------------------------------------------------------------------------- */
+/* benchmark 3: mprotect w->x latency */
 static int bench_mprotect(size_t region_size)
 {
     char *mem = mmap(NULL, region_size, PROT_READ | PROT_WRITE,
@@ -186,32 +175,28 @@ static int bench_mprotect(size_t region_size)
     return 0;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Main                                                                       */
-/* -------------------------------------------------------------------------- */
+/* main */
 int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
 
-    printf("============================================================\n");
-    printf("Javelin Linux Compatibility — Memory Scan Benchmark\n");
-    printf("Target throughput: >= %d MB/s\n", TARGET_THROUGHPUT_MB_S);
-    printf("============================================================\n\n");
+    printf("memscan benchmark\n");
+    printf("target: >= %d MB/s\n\n", TARGET_THROUGHPUT_MB_S);
 
     int rc = 0;
 
-    printf("--- Continuous Region Read ---\n");
+    printf("continuous read:\n");
     rc |= bench_self_read(4 * 1024 * 1024);   /* 4 MB */
     rc |= bench_self_read(16 * 1024 * 1024);  /* 16 MB */
     rc |= bench_self_read(64 * 1024 * 1024);  /* 64 MB */
     printf("\n");
 
-    printf("--- Chunked Vector Read ---\n");
+    printf("chunked read:\n");
     rc |= bench_chunked_read(64 * 1024 * 1024, 4 * 1024);   /* 4 KB chunks */
     rc |= bench_chunked_read(64 * 1024 * 1024, 64 * 1024);  /* 64 KB chunks */
     printf("\n");
 
-    printf("--- mprotect Latency ---\n");
+    printf("mprotect toggle:\n");
     rc |= bench_mprotect(4 * 1024 * 1024);
     rc |= bench_mprotect(64 * 1024 * 1024);
     printf("\n");
