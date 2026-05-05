@@ -27,7 +27,7 @@ echo "launch the game from steam now. press ctrl-c when done."
 echo "output: $OUT"
 
 # find the game process once it starts. wine/proton launches a chain
-# of processes so we trace the whole tree.
+# of processes. traces the whole tree.
 sudo dtrace -n 'syscall:::entry /pid == $target/ { @[probefunc] = count(); }' \
     -p "$(pgrep -f "$APPID" | head -1)" 2>/dev/null || true
 

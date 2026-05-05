@@ -36,7 +36,7 @@ static int prot_from_jv(uint32_t p) {
 }
 
 /* NULL handle means "current process". windows uses GetCurrentProcess()
- * which is ((HANDLE)-1). we use that too. */
+ * which is ((HANDLE)-1). same approach here. */
 static pid_t handle_to_pid(jv_handle_t h) {
     if (h == JV_INVALID_HANDLE || h == NULL)
         return getpid();
@@ -115,8 +115,8 @@ jv_result_t jv_query_process_info(jv_handle_t proc, int info_class, void *buf, u
         return JV_OK;
     }
     case JV_PROC_DEBUG_PORT: {
-        /* windows debug port is a handle. on linux we just say 0
-         * and let the eBPF tracepoint catch ptrace instead. */
+        /* windows debug port is a handle. on linux returns 0
+         * and the eBPF tracepoint catches ptrace instead. */
         uint32_t port = 0;
         size_t copy = (len < sizeof(port)) ? len : sizeof(port);
         memcpy(buf, &port, copy);
@@ -126,7 +126,7 @@ jv_result_t jv_query_process_info(jv_handle_t proc, int info_class, void *buf, u
     }
     case JV_PROC_IMAGE_NAME: {
         /* readlink /proc/PID/exe. fails for setuid binaries or if
-         * the kernel has hidepid=2 mounted. not much we can do. */
+         * the kernel has hidepid=2 mounted. no workaround available. */
         char path[512];
         char link[64];
         snprintf(link, sizeof(link), "/proc/%d/exe", pid);
@@ -217,7 +217,7 @@ jv_result_t jv_protect_memory(jv_handle_t proc, void **addr, uint32_t *len, uint
     (void)proc;
     long ps = sysconf(_SC_PAGESIZE);
     /* mprotect needs page-aligned addr. windows VirtualProtect does this
-     * internally too. we align down and extend length to cover the tail. */
+     * internally too. aligns down and extends length to cover the tail. */
     void *page = (void *)(((uintptr_t)*addr) & ~(ps - 1));
     size_t plen = *len;
     if (page != *addr)
@@ -226,7 +226,7 @@ jv_result_t jv_protect_memory(jv_handle_t proc, void **addr, uint32_t *len, uint
     if (mprotect(page, plen, prot_from_jv(prot)) != 0)
         return JV_ERR_DENIED;
 
-    /* FIXME: we should return the old protection bits. nobody seems to
+    /* FIXME: should return the old protection bits. nobody seems to
      * check this on linux but windows code definitely does. */
     if (old_prot)
         *old_prot = 0;
@@ -266,8 +266,8 @@ jv_result_t jv_free_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32_
     (void)proc;
     (void)free_type;
     /* windows distinguishes MEM_DECOMMIT and MEM_RELEASE. on linux
-     * munmap is always MEM_RELEASE. we could mprotect to PROT_NONE for
-     * DECOMMIT but nobody has asked for it yet. */
+     * munmap is always MEM_RELEASE. mprotect to PROT_NONE for
+     * DECOMMIT possible but not currently implemented. */
     if (!addr || !len)
         return JV_ERR_INVALID;
     if (munmap(*addr, *len) != 0)
@@ -327,7 +327,7 @@ jv_result_t jv_create_thread(jv_handle_t *out, void *start, void *arg) {
 
 /* NtDebugActiveProcess. anti-cheat attaches to detect debuggers.
  * this blocks until the tracee stops. if someone else is already
- * tracing it, we hang here. PTRACE_SEIZE exists but requires 3.4+.
+ * tracing it, this blocks. PTRACE_SEIZE exists but requires 3.4+.
  * most anti-cheats just do PTRACE_ATTACH and accept the race. */
 jv_result_t jv_debug_attach(jv_handle_t proc) {
     pid_t pid = handle_to_pid(proc);

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# analyze EAC linux client exports if you have an EAC-enabled game installed
+# analyze EAC linux client exports when an EAC-enabled game is installed
 # usage: ./analyze-eac-client.sh <path/to/libeasyanticheat.so>
 # or run without args and itll search common steam library paths
 

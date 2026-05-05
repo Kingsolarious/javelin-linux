@@ -33,8 +33,8 @@ struct {
     __uint(max_entries, 256 * 1024);
 } jvl_rb SEC(".maps");
 
-/* populated by loader. 16 entries is plenty — we're monitoring
- * one game process, maybe the launcher. */
+/* populated by loader. 16 entries is plenty — sufficient for
+ * monitoring one game process, maybe the launcher. */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16);
@@ -43,8 +43,8 @@ struct {
 } jvl_target_pids SEC(".maps");
 
 /* per-pid last timestamp for timer anomaly detection.
- * if we see clock_gettime(CLOCK_MONOTONIC) firing way too fast,
- * somebody is speeding up the game timer. */
+ * detects clock_gettime(CLOCK_MONOTONIC) firing too fast,
+ * indicating game timer manipulation. */
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 16);
@@ -146,8 +146,7 @@ int javelin_kallsyms_open(struct trace_event_raw_sys_enter *ctx) {
 }
 
 /* detect foreign eBPF loads while game is running.
- * this is paranoid — if a cheater loads their own eBPF to
- * patch our hooks, we want to know. */
+ * detects foreign eBPF loads that could patch the hooks. */
 SEC("lsm/bpf")
 int BPF_PROG(javelin_bpf_load, int cmd, union bpf_attr *attr, unsigned int size) {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;

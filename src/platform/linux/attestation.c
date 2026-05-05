@@ -105,9 +105,9 @@ static bool secure_boot_enabled(void) {
 
 /* djb2 hash of a memory region. not cryptographic. real anti-cheats
  * use SHA256 or better but this is just for a quick integrity check
- * on W->X transitions. if you want real security, use a real hash. */
+ * on W->X transitions. for production security, use a cryptographic hash. */
 static uint64_t hash_memory_region(pid_t pid, void *addr, size_t len) {
-    /* FIXME: no upper bound on len. if someone passes 4GB we OOM.
+    /* FIXME: no upper bound on len. 4GB allocation would OOM.
      * caller currently only passes 4KB so its fine. */
     struct iovec local = {.iov_base = malloc(len), .iov_len = len};
     struct iovec remote = {.iov_base = addr, .iov_len = len};

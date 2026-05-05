@@ -5,7 +5,7 @@
  *
  * WARNING: this whitelist may be too restrictive for Wine/Proton.
  * Wine requires additional syscalls (openat, fstat, etc.).
- * we need to add a wine-specific allowlist but nobody has done it yet.
+ * wine-specific allowlist not yet implemented.
  */
 
 #include <linux/errno.h>
@@ -17,7 +17,7 @@
 
 /* these numbers are x86_64 only. on arm64 theyre different.
  * arm64 uses different values.
- * we need to use SYS_process_vm_readv from <sys/syscall.h> instead
+ * use SYS_process_vm_readv from <sys/syscall.h> instead
  * but glibc headers are inconsistent across distros. */
 #ifndef __NR_process_vm_readv
 #define __NR_process_vm_readv 310

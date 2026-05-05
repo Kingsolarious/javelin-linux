@@ -37,7 +37,7 @@ static int bench_self_read(size_t region_size) {
         return 1;
     }
 
-    /* fill so the kernel doesn't zero-page dedup */
+    /* fill so the kernel does not zero-page dedup */
     for (size_t i = 0; i < region_size; i++)
         src[i] = (char)(i & 0xFF);
 

@@ -20,9 +20,9 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 
-/* TODO: switch to bpftool skeleton once we stop changing the maps.
- * skeletons are nice but they break every time you rename a map.
- * until the schema stabilizes, we load the object manually. */
+/* TODO: switch to bpftool skeleton once the maps stabilize.
+ * skeletons break on map rename. loads the object manually
+ * until the schema stabilizes. */
 #define JVL_PIN_DIR "/sys/fs/bpf/javelin"
 #define JVL_PROG_PIN JVL_PIN_DIR "/programs"
 #define JVL_MAP_PIN JVL_PIN_DIR "/maps"
@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* pin maps so they stay alive if we crash.
+    /* pin maps so they stay alive on crash.
      * without pinning, the maps are destroyed when this process exits.
      * without pinning, the shim cannot read events after privilege drop. */
     struct bpf_map *map = NULL;
@@ -99,8 +99,8 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Warning: failed to pin prog %s: %s\n", name, strerror(errno));
         }
 
-        /* LSM progs auto-attach on 5.7+. on older kernels you need
-         * manual attachment via bpf_prog_attach required on < 5.7.
+        /* LSM progs auto-attach on 5.7+. on older kernels
+         * manual attachment via bpf_prog_attach required.
          * minimum supported kernel is 5.15. */
         fprintf(stderr, "[loader] Program '%s' loaded (fd=%d)\n", name, fd);
     }
@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* drop privs if we ran with sudo */
+    /* drop privs when run with sudo */
     if (getuid() == 0) {
         const char *drop_user = getenv("SUDO_UID");
         if (drop_user) {
