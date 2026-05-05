@@ -23,10 +23,11 @@ Game Process -> libjavelin.so (NT API shim) -> eBPF LSM hooks
 **libjavelin.so** — Userland compatibility layer. Maps Windows NT APIs to Linux equivalents:
 - `NtReadVirtualMemory` -> `process_vm_readv`
 - `NtWriteVirtualMemory` -> `process_vm_writev`
-- `NtProtectVirtualMemory` -> `mprotect`
-- `NtAllocateVirtualMemory` -> `mmap`
-- `NtCreateThread` -> `pthread_create`
+- `NtProtectVirtualMemory` -> `mprotect` (old prot bits read from `/proc/PID/maps`)
+- `NtAllocateVirtualMemory` -> `mmap` with `MEM_RESERVE`/`MEM_COMMIT` semantics
+- `NtCreateThread` -> `pthread_create` with tracked handle lifecycle
 - `NtDebugActiveProcess` -> `ptrace`
+- `NtOpenProcess` -> validates YAMA `ptrace_scope` and `CAP_SYS_PTRACE`
 
 **eBPF Agent** (`javelin_monitor.bpf.o`) — LSM and tracepoint hooks:
 - `lsm/file_mprotect` — W->X transition detection
@@ -53,8 +54,14 @@ ctest --test-dir build --output-on-failure
 - Clang 14+, CMake 3.20+
 - libbpf 1.0+ (optional, for eBPF loader)
 
+### Architecture Support
+
+- x86_64 (primary)
+- aarch64 (constants defined, seccomp filter pending)
+
 ### Known Issues
 
+See [GitHub Issues](https://github.com/Kingsolarious/javelin-linux/issues) for tracked bugs. Current limitations:
 - The seccomp-bpf filter whitelist may be too restrictive for Wine/Proton.
 - Syscall numbers in the seccomp filter are hardcoded for x86_64.
 - No backend attestation server exists. Reports are emitted to stderr only.
