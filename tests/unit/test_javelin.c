@@ -183,6 +183,23 @@ static int test_flush_icache(void) {
     return 0;
 }
 
+static int test_performance_info(void) {
+    struct {
+        uint64_t uptime_ms;
+        uint64_t idle_ms;
+        uint32_t load_1k;
+        uint32_t cpu_mhz;
+    } info = {0};
+    uint32_t retlen = 0;
+
+    JV_ASSERT_OK(jv_query_system_info(JV_SYS_PERFORMANCE, &info, sizeof(info), &retlen));
+    assert(retlen == sizeof(info));
+    assert(info.uptime_ms > 0);
+    printf("  [PASS] jv_query_system_info(PERFORMANCE) uptime=%llums cpu=%uMHz\n",
+           (unsigned long long)info.uptime_ms, info.cpu_mhz);
+    return 0;
+}
+
 int main(void) {
     printf("running javelin tests...\n");
 
@@ -197,6 +214,7 @@ int main(void) {
     test_image_name();
     test_thread();
     test_flush_icache();
+    test_performance_info();
 
     printf("\nall passed.\n");
     return 0;
