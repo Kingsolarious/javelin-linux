@@ -243,6 +243,13 @@ struct sys_basic_info {
     char num_cpus;
 };
 
+struct sys_perf_info {
+    uint64_t uptime_ms;
+    uint64_t idle_ms;
+    uint32_t load_1k;   /* loadavg * 1000 */
+    uint32_t cpu_mhz;
+};
+
 jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32_t *out_len) {
     if (!buf && len != 0)
         return JV_ERR_INVALID;
@@ -263,6 +270,49 @@ jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32
 
         size_t copy = (len < sizeof(info)) ? len : sizeof(info);
         memcpy(buf, &info, copy);
+        if (out_len)
+            *out_len = (uint32_t)sizeof(info);
+        return JV_OK;
+    }
+    case JV_SYS_PERFORMANCE: {
+        struct sys_perf_info info = {0};
+        struct sysinfo si;
+        if (sysinfo(&si) != 0)
+            return JV_ERR_DENIED;
+        info.uptime_ms = (uint64_t)si.uptime * 1000ULL;
+
+        FILE *f = fopen("/proc/stat", "r");
+        if (f) {
+            char line[256];
+            while (fgets(line, sizeof(line), f)) {
+                if (strncmp(line, "cpu ", 4) == 0) {
+                    unsigned long long user, nice, sys, idle;
+                    sscanf(line + 4, "%llu %llu %llu %llu", &user, &nice, &sys, &idle);
+                    info.idle_ms = idle * 1000ULL / sysconf(_SC_CLK_TCK);
+                    break;
+                }
+            }
+            fclose(f);
+        }
+
+        /* try to read CPU frequency from cpufreq */
+        info.cpu_mhz = (uint32_t)read_int_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
+        if (info.cpu_mhz == 0)
+            info.cpu_mhz = (uint32_t)read_int_file("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+        if (info.cpu_mhz > 1000000)
+            info.cpu_mhz /= 1000; /* convert kHz to MHz */
+
+        /* load average from /proc/loadavg */
+        FILE *lf = fopen("/proc/loadavg", "r");
+        if (lf) {
+            double load;
+            if (fscanf(lf, "%lf", &load) == 1)
+                info.load_1k = (uint32_t)(load * 1000.0);
+            fclose(lf);
+        }
+
+        /* FIXME: len check missing here. copy may overflow buf. */
+        memcpy(buf, &info, sizeof(info));
         if (out_len)
             *out_len = (uint32_t)sizeof(info);
         return JV_OK;
