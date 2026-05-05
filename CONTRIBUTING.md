@@ -1,34 +1,23 @@
-# contributing
+# Contributing
 
-if you want to contribute, open a PR. make sure it compiles and passes
-tests. thats it.
+Pull requests welcome. All changes must compile and pass tests.
 
-## what you can use
+## Permitted Sources
 
-- public microsoft NT API docs
-- wine source code (LGPL)
-- linux kernel source (GPL-2.0)
-- your own syscall traces from legally purchased games
+- Public Microsoft NT API documentation
+- Wine source code (LGPL)
+- Linux kernel source (GPL-2.0)
+- Syscall traces from legally purchased games
 
-## what you cant use
+## Prohibited Sources
 
-- leaked javelin source or internal EA docs
-- decompiled javelin binaries
-- cheat forums or bypass tutorials
+- Leaked proprietary source or internal documentation
+- Decompiled binaries
+- Cheat forums or bypass tutorials
 
-## code standards
+## Standards
 
 - C11 for shim and eBPF
 - eBPF must pass kernel verifier on 5.15+ and 6.x
-- all syscalls need unit tests
-- no hardcoded secrets
-
-## commit messages
-
-just write what you did. no special format required.
-
-## maintainers
-
-- erick
-- nick
-- dyllan
+- All syscalls require unit tests
+- No hardcoded secrets

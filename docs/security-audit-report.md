@@ -1,56 +1,35 @@
-# security notes
+# Security Audit Notes
 
-april 2026. we reviewed our own code. no money for a paid audit.
+Date: April 2026
+Scope: Manual code review of C and eBPF source
 
-## what we checked
+## Build Verification
 
-- manual code review of all C and eBPF
-- GCC 15.2.1 and clang 21.1.8 builds
-- clang-tidy static analysis
-- runtime testing
+- GCC 15.2.1: Clean build
+- Clang 21.1.8: Clean build
+- clang-tidy: Static analysis completed
 
-## issues fixed
+## Issues Fixed
 
-- loader continued as root if SUDO_UID missing -> now aborts
-- MAP_FIXED without NOREPLACE -> fixed
-- NULL dereferences -> added checks
-- prctl failure ignored -> now returns error
+- Loader continued as root if `SUDO_UID` missing. Now aborts.
+- `MAP_FIXED` used without `NOREPLACE`. Fixed.
+- NULL pointer dereferences in syscall proxy. Added checks.
+- `prctl(PR_SET_DUMPABLE, 0)` failure ignored. Now returns error.
 
-## what the verifier guarantees
+## eBPF Verifier Guarantees
 
-- no unbounded loops
-- no raw pointer arithmetic
-- cannot modify kernel state
-- reports only via ring buffer
+- No unbounded loops
+- No raw pointer arithmetic
+- Cannot modify kernel state
+- Reports only via ring buffer
 
-## what we CANNOT guarantee
+## Limitations
 
-pre-boot compromise: if a rootkit loads before our agent, we cant
-detect it from inside the kernel. we check /proc/modules and secure
-boot status, but a determined attacker can hide their module.
+- Pre-boot compromise cannot be detected from inside the kernel
+- eBPF subsystem compromise would invalidate hash checks
+- Userland shim is open-source and can be modified
+- No backend exists to verify reports
 
-ebpf subsystem compromise: if the verifier or bpf() syscall is patched
-before our agent loads, our hash checks are meaningless.
+## Recommendations
 
-shim tampering: the userland shim is open-source. an attacker can
-modify and recompile it. we dont have signing infrastructure yet.
-
-no backend: there is no game backend to verify reports. we built the
-client agent. backend integration is a separate problem.
-
-## what this protects against
-
-- casual cheaters unloading a kernel module
-- off-the-shelf cheat tools that use ptrace
-- self-modifying code (W->X transitions)
-
-## what this does NOT protect against
-
-- determined attackers with root who patch the kernel first
-- nation-state level adversaries
-- hardware-level attacks
-
-## if youre EA
-
-hire a real red team. dont trust our self-review. this is a starting
-point, not a finished product.
+This is a starting point, not a finished product. A professional red team assessment is recommended before production deployment.

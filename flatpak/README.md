@@ -1,31 +1,27 @@
-# flatpak packaging
+# Flatpak Packaging
 
-for ROG ally / steam deck.
-
-## build
+## Build
 
 ```bash
 cd flatpak
 flatpak-builder --user --install --force-clean build-dir com.ea.javelin-compat.yml
 ```
 
-## usage
+## Usage
 
-add to steam launch options:
+Add to Steam launch options:
 ```
 flatpak run com.ea.javelin-compat %command%
 ```
 
-## permissions
+## Permissions
 
-- `/sys/fs/bpf:rw` — pin eBPF maps and programs
-- `/sys/kernel/btf:ro` — read kernel BTF
-- `/run/javelin:create` — unix socket for shim->loader
-- `device=all` — GPU and TPM
-- `talk-name=org.freedesktop.PolicyKit1` — elevate for eBPF loading
+- `/sys/fs/bpf:rw` — eBPF map pinning
+- `/sys/kernel/btf:ro` — BTF reading
+- `/run/javelin:create` — UNIX socket
+- `device=all` — GPU and TPM access
 
-## known issues
+## Known Issues
 
-- eBPF loading inside flatpak needs polkit. prompts for sudo password once per boot.
-- kernel lockdown on some steamOS versions blocks custom eBPF loads.
-  shim falls back to userland-only mode.
+- eBPF loading inside Flatpak requires polkit.
+- Kernel lockdown on some SteamOS versions blocks custom eBPF loads.
