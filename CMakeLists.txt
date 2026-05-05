@@ -34,7 +34,7 @@ if(NOT LIBBPF_FOUND)
     message(WARNING "libbpf not found; loader build may fail")
 endif()
 
-# core library
+# libjavelin.so
 add_library(javelin SHARED
     src/javelin/javelin.c
     src/platform/linux/attestation.c
@@ -50,7 +50,7 @@ set_target_properties(javelin PROPERTIES
     C_VISIBILITY_PRESET "default"
 )
 
-# eBPF loader
+# loader binary
 if(LIBBPF_FOUND)
     add_executable(javelin-loader src/ebpf/loader.c)
     target_include_directories(javelin-loader PRIVATE ${LIBBPF_INCLUDE_DIRS})
@@ -59,6 +59,9 @@ if(LIBBPF_FOUND)
 else()
     message(STATUS "Skipping javelin-loader (libbpf unavailable)")
 endif()
+
+# status tool (connects to loader socket and prints events)
+add_executable(javelin-status src/javelin-status.c)
 
 # tests
 if(JVL_BUILD_TESTS)
@@ -99,6 +102,10 @@ if(TARGET javelin-loader)
     )
 endif()
 
+install(TARGETS javelin-status
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
 install(FILES src/javelin/javelin.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
@@ -110,9 +117,9 @@ install(DIRECTORY docs/
 
 message(STATUS "")
 message(STATUS "javelin linux ${PROJECT_VERSION}")
-message(STATUS "  build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  tests: ${JVL_BUILD_TESTS}")
-message(STATUS "  eBPF:  ${JVL_BUILD_EBPF}")
-message(STATUS "  ASan:  ${JVL_ENABLE_ASAN}")
-message(STATUS "  prefix: ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "tests: ${JVL_BUILD_TESTS}")
+message(STATUS "ebpf: ${JVL_BUILD_EBPF}")
+message(STATUS "asan: ${JVL_ENABLE_ASAN}")
+message(STATUS "prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "")
