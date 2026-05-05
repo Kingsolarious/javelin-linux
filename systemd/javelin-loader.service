@@ -1,0 +1,24 @@
+[Unit]
+Description=Javelin Anti-Cheat eBPF Attestation Agent
+Documentation=https://github.com/javelin-linux-compat/docs
+After=network.target systemd-modules-load.service
+ConditionPathExists=/sys/kernel/btf/vmlinux
+
+[Service]
+Type=simple
+# The loader requires CAP_BPF and CAP_PERFMON for eBPF loading.
+# In production this would be a setuid helper or polkit action.
+ExecStartPre=/bin/sh -c 'mkdir -p /run/javelin /sys/fs/bpf/javelin'
+ExecStart=/usr/local/bin/javelin-loader /usr/local/lib/javelin/ebpf/javelin_monitor.bpf.o
+ExecStopPost=/bin/rm -f /run/javelin/ebpf.sock
+Restart=on-failure
+RestartSec=5
+
+# Security hardening (loader drops privileges after eBPF load anyway)
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/javelin /sys/fs/bpf/javelin
+
+[Install]
+WantedBy=multi-user.target

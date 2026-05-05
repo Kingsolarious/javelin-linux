@@ -1,0 +1,265 @@
+syntax = "proto3";
+
+package javelin.linux.attestation;
+
+option go_package = "github.com/javelin-linux-compat/proto/attestation";
+
+/* ========================================================================== */
+/* Javelin Linux Attestation Wire Protocol                                    */
+/*                                                                            */
+/* This schema defines the telemetry reports sent from the Linux shim to the  */
+/* EA attestation backend.  It is designed to be binary-compatible with the   */
+/* existing Windows Javelin reporting format where possible, with Linux-      */
+/* specific extensions marked explicitly.                                     */
+/*                                                                            */
+/* NOTE: This is a public interoperability specification.  No EA proprietary  */
+/* code, keys, or internal schemas are present.                               */
+/* ========================================================================== */
+
+/* -------------------------------------------------------------------------- */
+/* Top-level attestation report                                               */
+/* -------------------------------------------------------------------------- */
+message AttestationReport {
+  // Report metadata
+  ReportHeader header = 1;
+
+  // Hardware identity
+  HardwareIdentity hardware = 2;
+
+  // Process integrity baseline (taken at launch)
+  ProcessBaseline baseline = 3;
+
+  // Runtime security events (batched)
+  repeated SecurityEvent events = 4;
+
+  // Linux-specific extensions
+  LinuxExtensions linux = 5;
+
+  // Integrity signature over this message (placeholder until EA provides key)
+  bytes signature = 6;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Report header                                                              */
+/* -------------------------------------------------------------------------- */
+message ReportHeader {
+  // Unix nanoseconds since epoch
+  uint64 timestamp_ns = 1;
+
+  // Protocol version (semver encoded as major*1e6 + minor*1e3 + patch)
+  uint32 version = 2;
+
+  // Session ID (UUIDv4, generated at game launch)
+  string session_id = 3;
+
+  // Game identifier (e.g., "ea-bf6", "ea-fc26")
+  string game_id = 4;
+
+  // Javelin compatibility layer version
+  string shim_version = 5;
+
+  // Sequence number for deduplication / replay detection
+  uint64 sequence_number = 6;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Hardware identity                                                          */
+/* -------------------------------------------------------------------------- */
+message HardwareIdentity {
+  // TPM2.0 EK public hash (or fTPM equivalent)
+  bytes tpm_ek_hash = 1;
+
+  // CPU vendor and model (e.g., "AuthenticAMD AMD Ryzen 7 7840U")
+  string cpu_info = 2;
+
+  // Platform firmware info
+  string firmware_vendor = 3;
+  string firmware_version = 4;
+
+  // Linux kernel version string
+  string kernel_version = 5;
+
+  // Distro identifier (e.g., "steamos-3.5", "ubuntu-22.04")
+  string distro_id = 6;
+
+  // Unique but rotating hardware fingerprint (HMAC-SHA256 of stable fields)
+  bytes hardware_fingerprint = 7;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Process baseline (memory hash at launch)                                   */
+/* -------------------------------------------------------------------------- */
+message ProcessBaseline {
+  // PID of the game process
+  uint32 pid = 1;
+
+  // SHA-256 of the game executable's .text section
+  bytes text_section_hash = 2;
+
+  // SHA-256 of the loaded Javelin DLL's .text section
+  bytes javelin_text_hash = 3;
+
+  // List of loaded modules at launch time
+  repeated ModuleInfo modules = 4;
+
+  // Kernel command line hash (detects boot-time cheating)
+  bytes kernel_cmdline_hash = 5;
+}
+
+message ModuleInfo {
+  string path = 1;
+  uint64 base_address = 2;
+  uint64 size = 3;
+  bytes text_hash = 4;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Security events (streamed from eBPF + userland)                            */
+/* -------------------------------------------------------------------------- */
+message SecurityEvent {
+  // Event timestamp (monotonic ns, same domain as eBPF ktime_get_ns)
+  uint64 timestamp_ns = 1;
+
+  // Event type classification
+  EventType type = 2;
+
+  // Severity for backend anomaly scoring
+  Severity severity = 3;
+
+  // PID where event occurred
+  uint32 pid = 4;
+
+  // TID where event occurred (0 if not thread-specific)
+  uint32 tid = 5;
+
+  // Event-specific payload
+  oneof payload {
+    MemoryProtectEvent mprotect = 10;
+    PtraceEvent ptrace = 11;
+    ModuleLoadEvent module_load = 12;
+    KallsymsAccessEvent kallsyms = 13;
+    TimerAnomalyEvent timer = 14;
+    FileOpenEvent file_open = 15;
+    ProcessSpawnEvent process_spawn = 16;
+  }
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_MPROTECT_EXEC = 1;
+  EVENT_TYPE_PTRACE_ATTACH = 2;
+  EVENT_TYPE_MODULE_LOAD = 3;
+  EVENT_TYPE_KALLSYMS_ACCESS = 4;
+  EVENT_TYPE_TIMER_ANOMALY = 5;
+  EVENT_TYPE_FILE_OPEN = 6;
+  EVENT_TYPE_PROCESS_SPAWN = 7;
+  EVENT_TYPE_EBPF_FOREIGN_LOAD = 8;
+}
+
+enum Severity {
+  SEVERITY_INFO = 0;
+  SEVERITY_LOW = 1;
+  SEVERITY_MEDIUM = 2;
+  SEVERITY_HIGH = 3;
+  SEVERITY_CRITICAL = 4;
+}
+
+message MemoryProtectEvent {
+  uint64 address = 1;
+  uint32 old_protection = 2;
+  uint32 new_protection = 3;
+  uint64 region_size = 4;
+}
+
+message PtraceEvent {
+  uint32 target_pid = 1;
+  uint32 request_type = 2;
+  // True if the ptrace was denied by kernel Yama LSM
+  bool blocked_by_lsm = 3;
+}
+
+message ModuleLoadEvent {
+  string module_path = 1;
+  bool is_kernel_module = 2;
+}
+
+message KallsymsAccessEvent {
+  string accessor_path = 1;
+  // True if /proc/kallsyms was read with kptr_restrict=0
+  bool unrestricted = 2;
+}
+
+message TimerAnomalyEvent {
+  // Detected time compression / speed hack ratio
+  double speed_ratio = 1;
+  uint64 expected_interval_ns = 2;
+  uint64 actual_interval_ns = 3;
+}
+
+message FileOpenEvent {
+  string path = 1;
+  uint32 flags = 2;
+  uint32 mode = 3;
+}
+
+message ProcessSpawnEvent {
+  uint32 child_pid = 1;
+  string command_line = 2;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Linux-specific extensions                                                  */
+/* -------------------------------------------------------------------------- */
+message LinuxExtensions {
+  // eBPF program IDs currently loaded in the kernel
+  repeated uint64 loaded_bpf_prog_ids = 1;
+
+  // Kernel lockdown mode (none, integrity, confidentiality)
+  string lockdown_mode = 2;
+
+  // Yama ptrace_scope level (0-3)
+  uint32 yama_ptrace_scope = 3;
+
+  // Seccomp mode of the game process (0=disabled, 1=strict, 2=filter)
+  uint32 seccomp_mode = 4;
+
+  // Whether the eBPF agent is active and reporting
+  bool ebpf_agent_active = 5;
+
+  // Shim integrity hash (self-check of libjavelin_linux.so)
+  bytes shim_hash = 6;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Backend request/response wrappers                                          */
+/* -------------------------------------------------------------------------- */
+message AttestationRequest {
+  AttestationReport report = 1;
+  // Challenge-response nonce from backend (prevents replay)
+  bytes nonce = 2;
+}
+
+message AttestationResponse {
+  // Server-side session token (passed in subsequent reports)
+  bytes session_token = 1;
+
+  // Server decision
+  Decision decision = 2;
+
+  // Human-readable reason (for logging, not enforcement)
+  string reason = 3;
+
+  // If DECISION_CHALLENGE, new nonce to sign
+  bytes next_nonce = 4;
+
+  // Server time for client clock skew detection
+  uint64 server_timestamp_ns = 5;
+}
+
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  DECISION_ALLOW = 1;
+  DECISION_DENY = 2;
+  DECISION_CHALLENGE = 3;
+  DECISION_DEFER = 4;
+}

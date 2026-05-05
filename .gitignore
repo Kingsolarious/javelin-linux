@@ -1,0 +1,35 @@
+# Build artifacts
+/build/
+/build-*/
+/cmake-build-*/
+/.cache/
+compile_commands.json
+
+# eBPF objects
+*.bpf.o
+*.skel.h
+
+# Generated headers
+/src/ebpf/vmlinux.h
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+Testing/
+test-results/
+*.log
+
+# Packaging
+*.deb
+*.rpm
+*.tar.gz
+*.zip

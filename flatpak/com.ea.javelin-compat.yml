@@ -1,0 +1,55 @@
+app-id: com.ea.javelin-compat
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm16
+command: steam-launch-wrapper.sh
+
+finish-args:
+  - --filesystem=~/.local/share/Steam:create
+  - --filesystem=~/.steam:create
+  - --filesystem=~/Games:create
+  - --filesystem=/sys/fs/bpf:rw
+  - --filesystem=/sys/kernel/btf:ro
+  - --filesystem=/run/javelin:create
+  - --device=all
+  - --socket=session-bus
+  - --share=network
+  - --allow=multiarch
+  - --allow=devel
+  - --talk-name=org.freedesktop.PolicyKit1
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - /share/doc
+  - '*.la'
+  - '*.a'
+
+modules:
+  - name: libbpf
+    buildsystem: simple
+    build-commands:
+      - make -C src PREFIX=/app install
+    sources:
+      - type: archive
+        url: https://github.com/libbpf/libbpf/archive/refs/tags/v1.3.0.tar.gz
+        sha256: 5cf7a4b9d1a209d5c2d1f94def7a0dd154224925b5f3c42f5f7fb0b9c2f5f7fb
+
+  - name: javelin-linux-compat
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DJVL_BUILD_TESTS=OFF
+      - -DCMAKE_INSTALL_PREFIX=/app
+    sources:
+      - type: dir
+        path: ..
+
+  - name: wrapper-symlink
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 /app/share/javelin/steam-launch-wrapper.sh /app/bin/steam-launch-wrapper.sh
+    sources: []
