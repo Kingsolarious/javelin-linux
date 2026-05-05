@@ -311,8 +311,8 @@ jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32
             fclose(lf);
         }
 
-        /* FIXME: len check missing here. copy may overflow buf. */
-        memcpy(buf, &info, sizeof(info));
+        size_t copy = (len < sizeof(info)) ? len : sizeof(info);
+        memcpy(buf, &info, copy);
         if (out_len)
             *out_len = (uint32_t)sizeof(info);
         return JV_OK;
