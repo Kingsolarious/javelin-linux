@@ -3,54 +3,50 @@
  * boilerplate libbpf.
  */
 
+#include <errno.h>
+#include <fcntl.h>
+#include <linux/limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/un.h>
-#include <linux/limits.h>
+#include <unistd.h>
 
-#include <bpf/libbpf.h>
 #include <bpf/bpf.h>
+#include <bpf/libbpf.h>
 
 /* TODO: switch to bpftool skeleton once we stop changing the maps.
  * skeletons are nice but they break every time you rename a map.
  * until the schema stabilizes, we load the object manually. */
 #define JVL_PIN_DIR "/sys/fs/bpf/javelin"
-#define JVL_PROG_PIN  JVL_PIN_DIR "/programs"
-#define JVL_MAP_PIN   JVL_PIN_DIR "/maps"
+#define JVL_PROG_PIN JVL_PIN_DIR "/programs"
+#define JVL_MAP_PIN JVL_PIN_DIR "/maps"
 
 static volatile sig_atomic_t g_stop = 0;
 
-static void sigint_handler(int sig)
-{
+static void sigint_handler(int sig) {
     (void)sig;
     g_stop = 1;
 }
 
-static int pin_map(int map_fd, const char *name)
-{
+static int pin_map(int map_fd, const char *name) {
     char path[PATH_MAX];
     snprintf(path, sizeof(path), "%s/%s", JVL_MAP_PIN, name);
     return bpf_obj_pin(map_fd, path);
 }
 
-static int pin_prog(int prog_fd, const char *name)
-{
+static int pin_prog(int prog_fd, const char *name) {
     char path[PATH_MAX];
     snprintf(path, sizeof(path), "%s/%s", JVL_PROG_PIN, name);
     return bpf_obj_pin(prog_fd, path);
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <javelin_monitor.bpf.o> [target_pid]\n", argv[0]);
         return 1;
@@ -62,7 +58,7 @@ int main(int argc, char **argv)
     /* libbpf needs this or it cries. RLIM_INFINITY is overkill
      * but some distros (ubuntu 22.04 LTS) have hilariously low
      * defaults like 64KB. insufficient for the allocated maps. */
-    struct rlimit rl = { RLIM_INFINITY, RLIM_INFINITY };
+    struct rlimit rl = {RLIM_INFINITY, RLIM_INFINITY};
     setrlimit(RLIMIT_MEMLOCK, &rl);
 
     mkdir("/sys/fs/bpf", 0755);
@@ -156,11 +152,10 @@ int main(int argc, char **argv)
      * need to loop on accept() or use a different transport. */
     int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
     if (sock >= 0) {
-        struct sockaddr_un addr = { .sun_family = AF_UNIX };
+        struct sockaddr_un addr = {.sun_family = AF_UNIX};
         snprintf(addr.sun_path, sizeof(addr.sun_path), "/run/javelin/ebpf.sock");
         unlink(addr.sun_path);
-        if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == 0 &&
-            listen(sock, 4) == 0) {
+        if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == 0 && listen(sock, 4) == 0) {
             fprintf(stderr, "[loader] Listening on %s\n", addr.sun_path);
         } else {
             close(sock);

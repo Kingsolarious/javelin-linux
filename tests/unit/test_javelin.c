@@ -3,16 +3,22 @@
  * run with: ./test_javelin
  */
 
+#include "../../src/javelin/javelin.h"
+#include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
-#include <stdint.h>
-#include "../../src/javelin/javelin.h"
 
-static int test_system_info(void)
-{
-    struct { uint32_t page_size; uint32_t phys_pages; uint32_t gran; uint64_t min_a; uint64_t max_a; char cpus; } info = {0};
+static int test_system_info(void) {
+    struct {
+        uint32_t page_size;
+        uint32_t phys_pages;
+        uint32_t gran;
+        uint64_t min_a;
+        uint64_t max_a;
+        char cpus;
+    } info = {0};
     uint32_t retlen = 0;
 
     jv_result_t rc = jv_query_system_info(JV_SYS_BASIC, &info, sizeof(info), &retlen);
@@ -24,8 +30,7 @@ static int test_system_info(void)
     return 0;
 }
 
-static int test_stub_classes(void)
-{
+static int test_stub_classes(void) {
     char buf[256];
     for (int cls = 1; cls <= 10; cls++) {
         memset(buf, 0xAA, sizeof(buf));
@@ -39,8 +44,7 @@ static int test_stub_classes(void)
     return 0;
 }
 
-static int test_read_memory_self(void)
-{
+static int test_read_memory_self(void) {
     uint32_t magic = 0xDEADBEEF;
     uint32_t readbuf = 0;
     uint32_t readlen = 0;
@@ -56,8 +60,7 @@ static int test_read_memory_self(void)
     return 0;
 }
 
-static int test_protect_memory(void)
-{
+static int test_protect_memory(void) {
     size_t ps = 4096;
     char *mem = aligned_alloc(ps, ps);
     assert(mem != NULL);
@@ -75,16 +78,21 @@ static int test_protect_memory(void)
     return 0;
 }
 
-static int test_close_handle(void)
-{
+static int test_close_handle(void) {
     assert(jv_close_handle((void *)0x1234) == JV_OK);
     printf("  [PASS] jv_close_handle\n");
     return 0;
 }
 
-static int test_process_info(void)
-{
-    struct { int32_t exit; void *peb; uint64_t aff; int32_t prio; uint64_t pid; uint64_t parent; } info = {0};
+static int test_process_info(void) {
+    struct {
+        int32_t exit;
+        void *peb;
+        uint64_t aff;
+        int32_t prio;
+        uint64_t pid;
+        uint64_t parent;
+    } info = {0};
     uint32_t retlen = 0;
 
     jv_result_t rc = jv_query_process_info(NULL, JV_PROC_BASIC, &info, sizeof(info), &retlen);
@@ -94,12 +102,12 @@ static int test_process_info(void)
     return 0;
 }
 
-static int test_alloc_free(void)
-{
+static int test_alloc_free(void) {
     void *addr = NULL;
     uint32_t len = 4096;
 
-    jv_result_t rc = jv_alloc_memory(NULL, &addr, &len, JV_MEM_RESERVE | JV_MEM_COMMIT, JV_PROT_READ | JV_PROT_WRITE);
+    jv_result_t rc = jv_alloc_memory(NULL, &addr, &len, JV_MEM_RESERVE | JV_MEM_COMMIT,
+                                     JV_PROT_READ | JV_PROT_WRITE);
     assert(rc == JV_OK);
     assert(addr != NULL);
 
@@ -110,8 +118,7 @@ static int test_alloc_free(void)
     return 0;
 }
 
-static int test_invalid_args(void)
-{
+static int test_invalid_args(void) {
     /* NULL buf with nonzero len should fail */
     jv_result_t rc = jv_query_system_info(JV_SYS_BASIC, NULL, 16, NULL);
     assert(rc == JV_ERR_INVALID);
@@ -128,9 +135,15 @@ static int test_invalid_args(void)
     return 0;
 }
 
-static int test_image_name(void)
-{
-    struct { int32_t exit; void *peb; uint64_t aff; int32_t prio; uint64_t pid; uint64_t parent; } proc = {0};
+static int test_image_name(void) {
+    struct {
+        int32_t exit;
+        void *peb;
+        uint64_t aff;
+        int32_t prio;
+        uint64_t pid;
+        uint64_t parent;
+    } proc = {0};
     uint32_t retlen = 0;
     char path[512];
 
@@ -145,17 +158,18 @@ static int test_image_name(void)
     return 0;
 }
 
-static void *dummy_thread_fn(void *arg)
-{
+static void *dummy_thread_fn(void *arg) {
     (void)arg;
     return (void *)0xBEEF;
 }
 
-static int test_thread(void)
-{
+static int test_thread(void) {
     jv_handle_t h;
     /* avoid ISO C function pointer cast warning */
-    union { void *p; void *(*fn)(void *); } u;
+    union {
+        void *p;
+        void *(*fn)(void *);
+    } u;
     u.fn = dummy_thread_fn;
     jv_result_t rc = jv_create_thread(&h, u.p, NULL);
     if (rc == JV_OK) {
@@ -166,8 +180,7 @@ static int test_thread(void)
     return 0;
 }
 
-static int test_flush_icache(void)
-{
+static int test_flush_icache(void) {
     size_t ps = 4096;
     char *mem = aligned_alloc(ps, ps);
     assert(mem != NULL);
@@ -180,8 +193,7 @@ static int test_flush_icache(void)
     return 0;
 }
 
-int main(void)
-{
+int main(void) {
     printf("running javelin tests...\n");
 
     test_system_info();

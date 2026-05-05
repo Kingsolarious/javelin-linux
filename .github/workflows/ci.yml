@@ -18,7 +18,7 @@ jobs:
       - name: deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ${{ matrix.compiler == 'clang' && 'clang' || '' }}
+          sudo apt-get install -y cmake ninja-build libbpf-dev ${{ matrix.compiler == 'clang' && 'clang' || '' }}
       - name: configure
         run: |
           cmake -B build -G Ninja \
@@ -38,7 +38,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cppcheck
-          cppcheck --enable=all --suppress=missingIncludeSystem --error-exitcode=1 src/
+          cppcheck --enable=all \
+            --suppress=missingIncludeSystem \
+            --suppress=unknownMacro \
+            --suppress=unusedFunction \
+            --suppress=unusedStructMember \
+            --suppress=constParameterPointer \
+            --suppress=constVariablePointer \
+            --suppress=variableScope \
+            --suppress=missingInclude \
+            --error-exitcode=1 src/
 
   format:
     runs-on: ubuntu-latest

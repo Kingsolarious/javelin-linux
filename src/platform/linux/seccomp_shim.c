@@ -8,12 +8,12 @@
  * we need to add a wine-specific allowlist but nobody has done it yet.
  */
 
+#include <linux/errno.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+#include <stddef.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
-#include <linux/seccomp.h>
-#include <linux/filter.h>
-#include <linux/errno.h>
-#include <stddef.h>
 
 /* these numbers are x86_64 only. on arm64 theyre different.
  * arm64 uses different values.
@@ -26,8 +26,7 @@
 #define __NR_process_vm_writev 311
 #endif
 
-int jv_seccomp_install(void)
-{
+int jv_seccomp_install(void) {
     struct sock_filter filter[] = {
         BPF_STMT(BPF_LD + BPF_W + BPF_ABS, offsetof(struct seccomp_data, nr)),
 

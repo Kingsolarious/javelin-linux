@@ -1,15 +1,14 @@
 /* seccomp filter test */
 
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/syscall.h>
 #include <errno.h>
+#include <stdio.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 /* Declared in seccomp_shim.c */
 extern int jv_seccomp_install(void);
 
-int main(void)
-{
+int main(void) {
     printf("Testing seccomp filter...\n");
 
     if (jv_seccomp_install() != 0) {

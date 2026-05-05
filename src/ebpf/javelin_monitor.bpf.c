@@ -5,9 +5,9 @@
  */
 
 #include "vmlinux.h"
+#include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
 
 char _license[] SEC("license") = "GPL";
 
@@ -52,25 +52,22 @@ struct {
     __type(value, __u64);
 } jvl_last_time SEC(".maps");
 
-static __always_inline bool is_target_pid(__u32 pid)
-{
+static __always_inline bool is_target_pid(__u32 pid) {
     __u8 *v = bpf_map_lookup_elem(&jvl_target_pids, &pid);
     return v != NULL;
 }
 
-static __always_inline void emit_event(enum jvl_event_type type,
-                                        __u64 addr, __u32 flags)
-{
+static __always_inline void emit_event(enum jvl_event_type type, __u64 addr, __u32 flags) {
     struct jvl_event *ev = bpf_ringbuf_reserve(&jvl_rb, sizeof(*ev), 0);
     if (!ev)
         return;
 
-    ev->type         = (__u32)type;
-    ev->pid          = bpf_get_current_pid_tgid() >> 32;
+    ev->type = (__u32)type;
+    ev->pid = bpf_get_current_pid_tgid() >> 32;
     ev->timestamp_ns = bpf_ktime_get_ns();
-    ev->addr         = addr;
-    ev->flags        = flags;
-    ev->reserved     = 0;
+    ev->addr = addr;
+    ev->flags = flags;
+    ev->reserved = 0;
 
     bpf_ringbuf_submit(ev, 0);
 }
@@ -80,8 +77,7 @@ static __always_inline void emit_event(enum jvl_event_type type,
  * memcmp helpers are unavailable in BPF_PROG_TYPE_LSM.
  * unrolled character comparison is the only approach that passes
  * on kernel 5.15+. */
-static __always_inline bool is_kallsyms(const char *path)
-{
+static __always_inline bool is_kallsyms(const char *path) {
     char buf[16];
     long rc = bpf_probe_read_user_str(buf, sizeof(buf), path);
     if (rc < 0)
@@ -91,17 +87,13 @@ static __always_inline bool is_kallsyms(const char *path)
     if (rc != 15)
         return false;
 
-    return buf[0]  == '/' && buf[1]  == 'p' && buf[2]  == 'r' &&
-           buf[3]  == 'o' && buf[4]  == 'c' && buf[5]  == '/' &&
-           buf[6]  == 'k' && buf[7]  == 'a' && buf[8]  == 'l' &&
-           buf[9]  == 'l' && buf[10] == 's' && buf[11] == 'y' &&
-           buf[12] == 'm' && buf[13] == 's';
+    return buf[0] == '/' && buf[1] == 'p' && buf[2] == 'r' && buf[3] == 'o' && buf[4] == 'c' &&
+           buf[5] == '/' && buf[6] == 'k' && buf[7] == 'a' && buf[8] == 'l' && buf[9] == 'l' &&
+           buf[10] == 's' && buf[11] == 'y' && buf[12] == 'm' && buf[13] == 's';
 }
 
 SEC("lsm/file_mprotect")
-int BPF_PROG(javelin_mprotect_check, struct vm_area_struct *vma,
-             unsigned long reqprot)
-{
+int BPF_PROG(javelin_mprotect_check, struct vm_area_struct *vma, unsigned long reqprot) {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (!is_target_pid(pid))
         return 0;
@@ -114,8 +106,7 @@ int BPF_PROG(javelin_mprotect_check, struct vm_area_struct *vma,
 }
 
 SEC("tp/syscalls/sys_enter_ptrace")
-int javelin_ptrace_detect(struct trace_event_raw_sys_enter *ctx)
-{
+int javelin_ptrace_detect(struct trace_event_raw_sys_enter *ctx) {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (!is_target_pid(pid))
         return 0;
@@ -129,9 +120,7 @@ int javelin_ptrace_detect(struct trace_event_raw_sys_enter *ctx)
 }
 
 SEC("lsm/kernel_read_file")
-int BPF_PROG(javelin_module_load, struct file *file,
-             enum kernel_read_file_id id, bool contents)
-{
+int BPF_PROG(javelin_module_load, struct file *file, enum kernel_read_file_id id, bool contents) {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (!is_target_pid(pid))
         return 0;
@@ -145,8 +134,7 @@ int BPF_PROG(javelin_module_load, struct file *file,
 }
 
 SEC("tp/syscalls/sys_enter_openat")
-int javelin_kallsyms_open(struct trace_event_raw_sys_enter *ctx)
-{
+int javelin_kallsyms_open(struct trace_event_raw_sys_enter *ctx) {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (!is_target_pid(pid))
         return 0;
@@ -161,8 +149,7 @@ int javelin_kallsyms_open(struct trace_event_raw_sys_enter *ctx)
  * this is paranoid — if a cheater loads their own eBPF to
  * patch our hooks, we want to know. */
 SEC("lsm/bpf")
-int BPF_PROG(javelin_bpf_load, int cmd, union bpf_attr *attr, unsigned int size)
-{
+int BPF_PROG(javelin_bpf_load, int cmd, union bpf_attr *attr, unsigned int size) {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (!is_target_pid(pid) && cmd == 5 /* BPF_PROG_LOAD */) {
         emit_event(JVL_EVT_MODULE_LOAD, (__u64)cmd, 0);
@@ -176,8 +163,7 @@ int BPF_PROG(javelin_bpf_load, int cmd, union bpf_attr *attr, unsigned int size)
  *
  * threshold tuned to avoid false positives on common hardware. */
 SEC("tp/syscalls/sys_enter_clock_gettime")
-int javelin_timer_check(struct trace_event_raw_sys_enter *ctx)
-{
+int javelin_timer_check(struct trace_event_raw_sys_enter *ctx) {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (!is_target_pid(pid))
         return 0;
