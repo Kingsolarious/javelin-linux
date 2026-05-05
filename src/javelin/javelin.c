@@ -138,9 +138,7 @@ static int read_int_file(const char *path) {
     return atoi(buf);
 }
 
-static int get_ptrace_scope(void) {
-    return read_int_file("/proc/sys/kernel/yama/ptrace_scope");
-}
+static int get_ptrace_scope(void) { return read_int_file("/proc/sys/kernel/yama/ptrace_scope"); }
 
 static bool has_cap_sys_ptrace(void) {
     FILE *f = fopen("/proc/self/status", "r");
@@ -246,7 +244,7 @@ struct sys_basic_info {
 struct sys_perf_info {
     uint64_t uptime_ms;
     uint64_t idle_ms;
-    uint32_t load_1k;   /* loadavg * 1000 */
+    uint32_t load_1k; /* loadavg * 1000 */
     uint32_t cpu_mhz;
 };
 
@@ -296,9 +294,11 @@ jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32
         }
 
         /* try to read CPU frequency from cpufreq */
-        info.cpu_mhz = (uint32_t)read_int_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
+        info.cpu_mhz =
+            (uint32_t)read_int_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
         if (info.cpu_mhz == 0)
-            info.cpu_mhz = (uint32_t)read_int_file("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+            info.cpu_mhz =
+                (uint32_t)read_int_file("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
         if (info.cpu_mhz > 1000000)
             info.cpu_mhz /= 1000; /* convert kHz to MHz */
 
@@ -564,7 +564,7 @@ jv_result_t jv_alloc_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32
  * ========================================================================== */
 
 #define JV_MEM_DECOMMIT 0x00004000
-#define JV_MEM_RELEASE  0x00008000
+#define JV_MEM_RELEASE 0x00008000
 
 jv_result_t jv_free_memory(jv_handle_t proc, void **addr, uint32_t *len, uint32_t free_type) {
     (void)proc;
@@ -710,14 +710,14 @@ jv_result_t jv_query_value(void *key, void *name, uint32_t class, void *buf, uin
  * ========================================================================== */
 
 /* windows disposition constants */
-#define JV_FILE_CREATE_NEW       1
-#define JV_FILE_CREATE_ALWAYS    2
-#define JV_FILE_OPEN_EXISTING    3
-#define JV_FILE_OPEN_ALWAYS      4
+#define JV_FILE_CREATE_NEW 1
+#define JV_FILE_CREATE_ALWAYS 2
+#define JV_FILE_OPEN_EXISTING 3
+#define JV_FILE_OPEN_ALWAYS 4
 #define JV_FILE_TRUNCATE_EXISTING 5
 
 /* windows access constants */
-#define JV_FILE_GENERIC_READ  0x80000000U
+#define JV_FILE_GENERIC_READ 0x80000000U
 #define JV_FILE_GENERIC_WRITE 0x40000000U
 
 jv_result_t jv_create_file(jv_handle_t *out, const char *path, uint32_t access,
