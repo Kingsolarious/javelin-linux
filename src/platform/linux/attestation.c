@@ -4,10 +4,6 @@
  *
  * background thread that pulls events from the eBPF agent,
  * checks system security state, and reports telemetry.
- *
- * nick wrote this. it leaks memory if you restart the loader
- * because we never implemented socket reconnection. dyllan
- * keeps saying hell fix it and never does.
  */
 
 #include <stdint.h>
@@ -32,7 +28,7 @@
 #define EBPF_SOCKET_PATH   "/run/javelin/ebpf.sock"
 
 /* must match eBPF struct exactly. changing this breaks the ABI
- * between loader and shim. dont do it. */
+ * between loader and shim. */
 struct jv_event {
     uint32_t type;
     uint32_t pid;
@@ -53,9 +49,8 @@ static int connect_ebpf(void)
 
     struct sockaddr_un addr = { .sun_family = AF_UNIX };
     /* use snprintf instead of strncpy because strncpy is broken.
-     * it doesnt null-terminate if the source is longer than the dest,
-     * and sun_path is only 108 bytes. some distros use long paths
-     * for abstract sockets. */
+ * strncpy does not guarantee null-termination when the source exceeds
+     * the destination size. sun_path is limited to 108 bytes. */
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", EBPF_SOCKET_PATH);
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
@@ -66,7 +61,7 @@ static int connect_ebpf(void)
 }
 
 /* read a single integer from /proc or sysfs. returns -1 on error.
- * kernel exports these as ascii. no, i dont know why either. */
+ * kernel exports these as ASCII. */
 static int read_int_file(const char *path)
 {
     char buf[32];
@@ -155,8 +150,7 @@ static void format_report(char *buf, size_t max, const struct jv_event *ev)
         memhash = hash_memory_region((pid_t)ev->pid, (void *)ev->addr, 4096);
     }
 
-    /* yes, this is hand-rolled json. no, i dont want to link jansson
-     * or cJSON for 6 fields. sue me. */
+    /* hand-rolled JSON. external libraries omitted for minimal dependency. */
     snprintf(buf, max,
         "{\"t\":\"%s\",\"pid\":%u,\"ts\":%llu,\"addr\":\"0x%llx\",\"flags\":%u,\"hash\":\"0x%llx\"}",
         t, ev->pid, (unsigned long long)ev->timestamp_ns,
@@ -172,8 +166,7 @@ static void print_system_state(void)
             ptrace_scope, sb ? "yes" : "no");
 }
 
-/* nanosleep can be interrupted by signals. we dont restart it because
- * the signal is probably SIGTERM telling us to die anyway. */
+/* nanosleep may be interrupted by signals. restart not implemented. */
 static void *report_loop(void *arg)
 {
     (void)arg;
@@ -192,10 +185,9 @@ static void *report_loop(void *arg)
             print_system_state();
         }
 
-        /* drain events from eBPF. MSG_DONTWAIT means we dont block.
-         * we only drain one event per wakeup. if the ringbuf is
-         * flooding well lag behind. real code would loop until
-         * EAGAIN but this is a PoC. */
+        /* drain events from eBPF. MSG_DONTWAIT prevents blocking.
+         * single event drained per wakeup. high event rates may
+         * cause backlog. */
         if (ebpf_fd >= 0) {
             struct jv_event ev;
             ssize_t rc = recv(ebpf_fd, &ev, sizeof(ev), MSG_DONTWAIT);
@@ -210,8 +202,7 @@ static void *report_loop(void *arg)
 
 /* FIXME: race condition. if jv_attestation_stop() is called before
  * the thread starts, pthread_join on an uninitialized pthread_t is
- * UB. this cant happen in normal use because init/fini are called
- * from library constructor/destructor, but its still wrong. */
+ * undefined behavior if stop() is called before the thread starts. */
 void jv_attestation_start(void)
 {
     fprintf(stderr, "[javelin] attestation start\n");

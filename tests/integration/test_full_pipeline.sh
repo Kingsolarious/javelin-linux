@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # integration tests
-# doesnt need root, just checks the shim builds and exports exist
+# does not require root. validates build and symbol exports.
 
 set -euo pipefail
 
@@ -63,7 +63,7 @@ test_dlopen_exports() {
 test_seccomp_install() {
     log_info "Test 2: Seccomp filter installation..."
 
-    # cant easily test seccomp from shell, unit test covers it
+    # seccomp testing requires root. covered by unit tests.
     log_pass "seccomp filter verified by unit test"
 }
 

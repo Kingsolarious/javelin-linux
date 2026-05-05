@@ -3,8 +3,8 @@
  * javelin linux native interface
  * public API for libjavelin.so
  *
- * this header is the contract. dont change it without updating
- * the windows side too.
+ * this header defines the ABI. changes require corresponding
+ * windows-side updates.
  */
 
 #ifndef JAVELIN_H
@@ -24,8 +24,7 @@ typedef int32_t jv_result_t;
 typedef void *jv_handle_t;
 #define JV_INVALID_HANDLE ((void *)-1)
 
-/* these are windows NT info class values. dont renumber them
- * or windows games will break. */
+/* windows NT info class values. renumbering will break compatibility. */
 enum jv_proc_info {
     JV_PROC_BASIC = 0,
     JV_PROC_DEBUG_PORT = 7,

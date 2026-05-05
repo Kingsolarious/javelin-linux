@@ -31,7 +31,7 @@ echo "output: $OUT"
 sudo dtrace -n 'syscall:::entry /pid == $target/ { @[probefunc] = count(); }' \
     -p "$(pgrep -f "$APPID" | head -1)" 2>/dev/null || true
 
-# fallback: strace the wine-preloader if dtrace isnt available
+# fallback: strace the wine-preloader if dtrace is unavailable
 # this is noisy but captures the actual syscalls
 if command -v strace >/dev/null 2>&1; then
     echo "falling back to strace..."

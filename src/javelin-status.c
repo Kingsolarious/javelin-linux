@@ -54,7 +54,7 @@ int main(int argc, char **argv)
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", SOCKET_PATH);
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        fprintf(stderr, "javelin-status: cant connect to %s: %s\n", SOCKET_PATH, strerror(errno));
+        fprintf(stderr, "javelin-status: cannot connect to %s: %s\n", SOCKET_PATH, strerror(errno));
         fprintf(stderr, "is the loader running? try: sudo ./build/javelin-loader ...\n");
         close(fd);
         return 1;

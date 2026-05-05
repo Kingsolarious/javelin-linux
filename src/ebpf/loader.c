@@ -1,9 +1,6 @@
 /*
  * eBPF loader. loads programs, pins to bpffs, drops privs.
- * mostly boilerplate libbpf stuff.
- *
- * nick wrote this. it leaks the ring_buffer struct on exit but
- * who cares, the process is dying anyway.
+ * boilerplate libbpf.
  */
 
 #include <stdio.h>
@@ -64,7 +61,7 @@ int main(int argc, char **argv)
 
     /* libbpf needs this or it cries. RLIM_INFINITY is overkill
      * but some distros (ubuntu 22.04 LTS) have hilariously low
-     * defaults like 64KB. this wasnt enough for our maps. */
+     * defaults like 64KB. insufficient for the allocated maps. */
     struct rlimit rl = { RLIM_INFINITY, RLIM_INFINITY };
     setrlimit(RLIMIT_MEMLOCK, &rl);
 
@@ -87,7 +84,7 @@ int main(int argc, char **argv)
 
     /* pin maps so they stay alive if we crash.
      * without pinning, the maps are destroyed when this process exits.
-     * that means the shim cant read events after we drop privs. */
+     * without pinning, the shim cannot read events after privilege drop. */
     struct bpf_map *map = NULL;
     bpf_object__for_each_map(map, obj) {
         const char *name = bpf_map__name(map);
@@ -107,8 +104,8 @@ int main(int argc, char **argv)
         }
 
         /* LSM progs auto-attach on 5.7+. on older kernels you need
-         * to attach them manually via bpf_prog_attach. we dont
-         * support < 5.15 anyway so this should Just Work. */
+         * manual attachment via bpf_prog_attach required on < 5.7.
+         * minimum supported kernel is 5.15. */
         fprintf(stderr, "[loader] Program '%s' loaded (fd=%d)\n", name, fd);
     }
 
@@ -155,8 +152,7 @@ int main(int argc, char **argv)
     }
 
     /* unix socket so the shim can talk to us.
-     * FIXME: we only accept one connection. if the shim restarts,
-     * it cant reconnect because we're not listening anymore.
+     * FIXME: single-connection socket. shim cannot reconnect on restart.
      * need to loop on accept() or use a different transport. */
     int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
     if (sock >= 0) {

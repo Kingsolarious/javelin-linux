@@ -1,7 +1,6 @@
 /*
  * quick unit tests for javelin.h
  * run with: ./test_javelin
- * nick wrote these on his zephyrus
  */
 
 #include <stdio.h>

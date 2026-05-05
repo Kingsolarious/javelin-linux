@@ -3,10 +3,7 @@
  * javelin linux native implementation
  *
  * core engine. implements what the windows javelin DLL expects
- * using linux syscalls. no wine glue here.
- *
- * nick wrote most of this. erick tested it on his ally.
- * dyllan keeps breaking the build with clang-format.
+ * using linux syscalls.
  */
 
 #include "javelin.h"
@@ -72,7 +69,7 @@ jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32
         info.phys_pages  = (uint32_t)sysconf(_SC_PHYS_PAGES);
         info.alloc_gran  = info.page_size;
         /* x86_64 canonical address space. these are hardcoded on windows too.
-         * arm64 is different but we dont have an arm64 build yet. */
+         * arm64 uses different values. */
         info.min_user_addr = 0x0000000000010000ULL;
         info.max_user_addr = 0x00007FFFFFFFFFFFULL;
         info.num_cpus    = (char)sysconf(_SC_NPROCESSORS_ONLN);
@@ -83,8 +80,7 @@ jv_result_t jv_query_system_info(int info_class, void *buf, uint32_t len, uint32
         return JV_OK;
     }
     default:
-        /* unknown info class. zero the buffer so the game doesnt crash
-         * reading garbage. this is what wine does too. */
+        /* unknown info class. zero the buffer to prevent undefined behavior. */
         if (buf) memset(buf, 0, len);
         if (out_len) *out_len = len;
         return JV_OK;
@@ -107,7 +103,7 @@ jv_result_t jv_query_process_info(jv_handle_t proc, int info_class, void *buf, u
             uint64_t parent;
         } info = {0};
         info.pid = (uint64_t)pid;
-        /* windows normal priority class. doesnt matter for linux. */
+        /* windows normal priority class. ignored on linux. */
         info.prio = 8;
         size_t copy = (len < sizeof(info)) ? len : sizeof(info);
         memcpy(buf, &info, copy);
@@ -153,9 +149,10 @@ jv_result_t jv_open_process(jv_handle_t *out, uint32_t access, void *client_id)
 
     pid_t pid = *(pid_t *)client_id;
     /* kill(pid, 0) checks if the process exists without sending a signal.
-     * EPERM means it exists but we cant signal it. we still return OK
-     * because process_vm_readv might work via YAMA ptrace_scope.
-     * this is wrong on systems without CROSS_MEMORY_ATTACH but fuck it. */
+     * EPERM indicates the process exists but cannot be signalled.
+     * process_vm_readv may still succeed depending on YAMA ptrace_scope.
+     * CROSS_MEMORY_ATTACH is required for process_vm_readv to work
+     * across unrelated processes. */
     if (pid <= 0 || (kill(pid, 0) != 0 && errno != EPERM))
         return JV_ERR_DENIED;
 
@@ -166,14 +163,14 @@ jv_result_t jv_open_process(jv_handle_t *out, uint32_t access, void *client_id)
 jv_result_t jv_close_handle(jv_handle_t h)
 {
     (void)h;
-    /* windows needs CloseHandle. linux doesnt have per-process handles
-     * in the same way. nothing to do. */
+    /* windows requires CloseHandle. linux does not use per-process
+     * handles in the same way. */
     return JV_OK;
 }
 
 /* NtReadVirtualMemory. primary API for anti-cheat memory scanning.
  * process_vm_readv needs CAP_SYS_PTRACE or YAMA ptrace_scope=0.
- * on steam deck with yama level 1, this works for child processes. */
+ * yama ptrace_scope=1 allows child process tracing. */
 jv_result_t jv_read_memory(jv_handle_t proc, void *addr, void *buf, uint32_t len, uint32_t *out_len)
 {
     pid_t pid = handle_to_pid(proc);
@@ -311,8 +308,8 @@ jv_result_t jv_create_thread(jv_handle_t *out, void *start, void *arg)
         free(params);
         return JV_ERR_DENIED;
     }
-    /* FIXME: should probably set detach state so we dont leak pthread_t
-     * if the caller never joins. wine does this differently. */
+    /* FIXME: set detach state to prevent pthread_t leak if caller
+     * does not join. */
     *out = (jv_handle_t)(uintptr_t)tid;
     return JV_OK;
 }
@@ -334,14 +331,12 @@ jv_result_t jv_debug_attach(jv_handle_t proc)
 jv_result_t jv_debug_detach(jv_handle_t proc)
 {
     pid_t pid = handle_to_pid(proc);
-    /* ignore errors. if the process exited already, ptrace fails
-     * with ESRCH and we dont care. */
+    /* ignore errors. ESRCH indicates the process has already exited. */
     ptrace(PTRACE_DETACH, pid, NULL, NULL);
     return JV_OK;
 }
 
-/* NtQueryValueKey. registry stub. games dont actually call this much
- * on linux because theres no registry, but we need the export. */
+/* NtQueryValueKey. registry stub. minimal implementation. */
 jv_result_t jv_query_value(void *key, void *name, uint32_t class, void *buf, uint32_t len, uint32_t *out_len)
 {
     (void)key; (void)name; (void)class;
@@ -352,9 +347,9 @@ jv_result_t jv_query_value(void *key, void *name, uint32_t class, void *buf, uin
     return JV_OK;
 }
 
-/* NtCreateFile. this is a lazy stub. windows CreateFile has like 7
- * different disposition modes and access masks. we just do O_CREAT|O_RDWR.
- * if a real game ever calls this with specific flags, it'll break. */
+/* NtCreateFile. stub implementation. windows CreateFile has 7
+ * disposition modes and access masks. O_CREAT|O_RDWR is a minimal
+ * approximation. may need expansion for real game compatibility. */
 jv_result_t jv_create_file(jv_handle_t *out, const char *path, uint32_t access, uint32_t disposition)
 {
     (void)access; (void)disposition;

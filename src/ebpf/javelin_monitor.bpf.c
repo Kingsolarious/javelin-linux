@@ -1,11 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * eBPF agent. LSM/tracepoint hooks.
- * emits events only — doesnt block shit.
- *
- * nick wrote this. tested on bazzite and steamos 3.5.
- * broke on fedora 42 because the verifier got stricter. fixed
- * by unrolling the kallsyms check. verifier is a fickle god.
+ * emits events only. does not block.
  */
 
 #include "vmlinux.h"
@@ -80,10 +76,10 @@ static __always_inline void emit_event(enum jvl_event_type type,
 }
 
 /* compare user string against "/proc/kallsyms" character by character.
- * eBPF verifier doesnt like loops so we unroll. tried using a
- * memcmp helper but BPF_PROG_TYPE_LSM cant call unbounded helpers
- * on user pointers. this is the only way that passes on 5.15+.
- * -nick, 3am, after 6 verifier rejections */
+ * eBPF verifier rejects bounded loops on user pointers.
+ * memcmp helpers are unavailable in BPF_PROG_TYPE_LSM.
+ * unrolled character comparison is the only approach that passes
+ * on kernel 5.15+. */
 static __always_inline bool is_kallsyms(const char *path)
 {
     char buf[16];
@@ -178,9 +174,7 @@ int BPF_PROG(javelin_bpf_load, int cmd, union bpf_attr *attr, unsigned int size)
  * monitors clock_gettime(CLOCK_MONOTONIC). if the interval between
  * calls is impossibly small, the game timer is being manipulated.
  *
- * this is noisy on systems with shitty TSC (looking at you, AMD
- * laptops with HPET fallback). we tuned the threshold to avoid
- * false positives on nicks zephyrus but your mileage may vary. */
+ * threshold tuned to avoid false positives on common hardware. */
 SEC("tp/syscalls/sys_enter_clock_gettime")
 int javelin_timer_check(struct trace_event_raw_sys_enter *ctx)
 {

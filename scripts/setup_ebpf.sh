@@ -29,7 +29,7 @@ check_deps() {
     elif [[ -f /proc/config.gz ]]; then
         local kconfig="/proc/config.gz"
     else
-        log_warn "cant find kernel config; assuming features are enabled"
+        log_warn "kernel config not found; assuming features are enabled"
         local kconfig=""
     fi
 

@@ -2,11 +2,9 @@
 /*
  * seccomp-bpf filter.
  * locks down the shim after init.
- * dyllan suggested this after we saw ptrace abuse in the wild.
  *
- * WARNING: this whitelist is probably too restrictive for wine/proton.
- * wine calls all kinds of shit we dont allow here (openat, fstat, etc).
- * if your game crashes after seccomp install, thats why.
+ * WARNING: this whitelist may be too restrictive for Wine/Proton.
+ * Wine requires additional syscalls (openat, fstat, etc.).
  * we need to add a wine-specific allowlist but nobody has done it yet.
  */
 
@@ -18,7 +16,7 @@
 #include <stddef.h>
 
 /* these numbers are x86_64 only. on arm64 theyre different.
- * if you try to build this on a steam deck (aarch64) itll break.
+ * arm64 uses different values.
  * we need to use SYS_process_vm_readv from <sys/syscall.h> instead
  * but glibc headers are inconsistent across distros. */
 #ifndef __NR_process_vm_readv
