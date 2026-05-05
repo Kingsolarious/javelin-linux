@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static int test_system_info(void) {
     struct {
@@ -136,14 +137,6 @@ static int test_invalid_args(void) {
 }
 
 static int test_image_name(void) {
-    struct {
-        int32_t exit;
-        void *peb;
-        uint64_t aff;
-        int32_t prio;
-        uint64_t pid;
-        uint64_t parent;
-    } proc = {0};
     uint32_t retlen = 0;
     char path[512];
 
